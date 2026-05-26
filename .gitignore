@@ -1,0 +1,14 @@
+# Local code intelligence
+.codegraph/
+.cursor/
+
+# Dependencies and external baselines
+node_modules/
+vendor/
+dist/
+build/
+coverage/
+
+# Local env
+.env
+.env.*
