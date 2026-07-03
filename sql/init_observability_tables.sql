@@ -1,5 +1,5 @@
--- TriMC observability baseline schema for timeline and replay APIs
--- Run with: psql "$TRIMC_DATABASE_URL" -f sql/init_observability_tables.sql
+-- #18 Postgres schema baseline for timeline/replay APIs
+-- Run with: psql "$CORE_AGENT_DATABASE_URL" -f sql/init_observability_tables.sql
 
 CREATE TABLE IF NOT EXISTS observability_events (
   event_id TEXT PRIMARY KEY,
@@ -29,15 +29,19 @@ CREATE TABLE IF NOT EXISTS observability_replays (
   CHECK (session_id IS NOT NULL OR trace_id IS NOT NULL)
 );
 
+-- Timeline queries: session ordered by timestamp + event_id
 CREATE INDEX IF NOT EXISTS idx_observability_events_session_timeline
   ON observability_events (session_id, timestamp, event_id);
 
+-- Trace pagination queries
 CREATE INDEX IF NOT EXISTS idx_observability_events_trace_timeline
   ON observability_events (trace_id, timestamp, event_id);
 
+-- Replay lookups by status + update time
 CREATE INDEX IF NOT EXISTS idx_observability_replays_status_updated
   ON observability_replays (status, updated_at DESC);
 
+-- Optional JSONB search acceleration (future filter expansion)
 CREATE INDEX IF NOT EXISTS idx_observability_events_payload_gin
   ON observability_events USING GIN (payload_json jsonb_path_ops);
 
