@@ -3,7 +3,7 @@
 ## Repository Map
 
 - `src/index.ts`：进程入口，读取环境变量并启动 TriMC HTTP 服务。
-- `src/agent-loop/`：Agent 循环实现，`loop.ts` 提供 `agentLoop()` async generator（while-true + tool dispatch），`tools.ts` 提供 6 个内置工具注册表。已吸收 Claude Code queryLoop 模式。Phase 1 吸收分析已完成。
+- `src/agent-loop/`：Agent 循环实现，`loop.ts` 提供 `agentLoop()` async generator（while-true + tool dispatch），`tools.ts` 提供 6 个内置工具注册表，`permissions.ts` 提供三级代理权限模型（main/subagent/coordinator）。已吸收 Claude Code queryLoop 和 constants/tools.ts 权限模式。Phase 1-4 吸收分析已完成，CTO-008 Tier 1 权限系统已落地。
 - `src/server/`：当前主装配面；`app.ts` 暴露 `/healthz` 与 `POST /internal/v1/agent` 两条接口，以及 `GET /internal/v1/agent/stream` SSE 流。
 - `src/task-controller/`：**v1.0 已完成**（CTO-007）。`controller.ts` 提供完整任务生命周期：`createTask`/`getTask`/`listTasks`/`updateTaskStatus` + 状态机（queued→running→completed/failed/cancelled）+ 终态不可逆 + 向后兼容 `acceptPlaceholder`。30 tests，全部通过。
 - `src/node-bridge/`：当前只有 `bridge.ts`，提供 `offerTask()` 占位桥接实现。
@@ -28,6 +28,7 @@
 - **2026-07-14（CARRY-004）**：Docker 多阶段构建完成（137MB）、docker-compose（TriMC + PostgreSQL）健康检查通过（`/healthz` → 200）、K8s manifests 已通过 TriDeployment scaffold 生成（Deployment / Service / HPA / PDB / Kustomization）。
 - **2026-07-14（CTO-007）**：agent loop 接入 TriModel UsageAccumulator，跨 turn TokenUsage 累计，`loop_end` 事件统一携带 `UsageSummary`。
 - **2026-07-14（CTO-007 Smoke Test）**：小全+小柯流水线烟雾测试完成。TaskController v1.0（30 tests）+ validate.mjs 验证器（3 门禁，85 tests 全量通过）+ CTO 审查 sign-off。`scripts/validate.mjs` 可用作后续积木的质量门禁工具。
+- **2026-07-15（CTO-008 Tool Permission System）**：吸收 Claude Code constants/tools.ts 三级权限模型。新增 `permissions.ts`（AgentTier: main/subagent/coordinator），loop.ts 支持 tier 参数和执行前 canUseTool 检查。26 测试 + 全量 111/111 PASS。子代理递归防护（task 工具被禁用于 subagent）。
 
 ## Change Tracking Baseline
 
