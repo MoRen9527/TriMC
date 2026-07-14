@@ -5,7 +5,7 @@
 - `src/index.ts`：进程入口，读取环境变量并启动 TriMC HTTP 服务。
 - `src/agent-loop/`：Agent 循环实现，`loop.ts` 提供 `agentLoop()` async generator（while-true + tool dispatch），`tools.ts` 提供 6 个内置工具注册表。已吸收 Claude Code queryLoop 模式。Phase 1 吸收分析已完成。
 - `src/server/`：当前主装配面；`app.ts` 暴露 `/healthz` 与 `POST /internal/v1/agent` 两条接口，以及 `GET /internal/v1/agent/stream` SSE 流。
-- `src/task-controller/`：当前是任务接单占位控制器，`controller.ts` 只返回 queued placeholder。
+- `src/task-controller/`：**v1.0 已完成**（CTO-007）。`controller.ts` 提供完整任务生命周期：`createTask`/`getTask`/`listTasks`/`updateTaskStatus` + 状态机（queued→running→completed/failed/cancelled）+ 终态不可逆 + 向后兼容 `acceptPlaceholder`。30 tests，全部通过。
 - `src/node-bridge/`：当前只有 `bridge.ts`，提供 `offerTask()` 占位桥接实现。
 - `src/policy-gate/`：已建目录，说明风险门禁已进入结构预留层，但本轮未见对外主入口装配。
 - `src/observability/`：当前最成熟的代码面，包含 mapper、contract samples、timeline/replay API、runtime、Postgres client 与 SQL store。
@@ -27,11 +27,12 @@
 - 尚未建立 registry 级代码健康评分和 git 热区摘要。
 - **2026-07-14（CARRY-004）**：Docker 多阶段构建完成（137MB）、docker-compose（TriMC + PostgreSQL）健康检查通过（`/healthz` → 200）、K8s manifests 已通过 TriDeployment scaffold 生成（Deployment / Service / HPA / PDB / Kustomization）。
 - **2026-07-14（CTO-007）**：agent loop 接入 TriModel UsageAccumulator，跨 turn TokenUsage 累计，`loop_end` 事件统一携带 `UsageSummary`。
+- **2026-07-14（CTO-007 Smoke Test）**：小全+小柯流水线烟雾测试完成。TaskController v1.0（30 tests）+ validate.mjs 验证器（3 门禁，85 tests 全量通过）+ CTO 审查 sign-off。`scripts/validate.mjs` 可用作后续积木的质量门禁工具。
 
 ## Change Tracking Baseline
 
 - 首要关注 `src/server/`、`src/task-controller/`、`src/node-bridge/`、`src/policy-gate/`、`src/observability/` 和 `vendor/openclaw/` 的变化。
-- 若 `/internal/v1/tasks` 从 placeholder 进入正式状态机、队列、审批或调度实现，应优先在本文件更新成熟度判断。
+- ~~若 `/internal/v1/tasks` 从 placeholder 进入正式状态机、队列、审批或调度实现，应优先在本文件更新成熟度判断。~~ **已达到（CTO-007）**：TaskController 状态机已实现，尚未装配到 HTTP 路由——下一步是 `src/server/app.ts` 集成。
 - 若 `node-bridge` 开始接入真实 Gateway / node registry / WebSocket 生命周期，也应单独记录从“占位桥接”到“现役桥接”的切换点。
 - 若 future planner/context/tool orchestration/model-call 能力真正落地，应以新增目录、入口文件和测试为准，再更新登记层，不可提前写成已具备。
 - 涉及具体项目代码仓库时，技术侧文档基线应按 `docs/engineering/DESIGN.md`、技术版 `ROADMAP.md`、技术版 `STATE.md` 以及 `docs/execution/<workstream>/<phase>/PLAN.md`、`SUMMARY.md`、`VERIFICATION.md` 维护；若缺失，应视为待补齐的技术或执行层缺口。
@@ -53,7 +54,7 @@
 ## Quality Risks
 
 - `src/server/app.ts` 目前只提供健康检查和任务接单占位接口，若外部文档把它描述为完整服务域控制 API，会明显高估现役能力。
-- `TaskController.acceptPlaceholder()` 只生成 queued 占位响应，说明任务状态机还没进入正式编排层。
+- ~~`TaskController.acceptPlaceholder()` 只生成 queued 占位响应，说明任务状态机还没进入正式编排层。~~ **已解决（CTO-007）**：TaskController v1.0 已包含完整状态机和 30 个自动化测试。
 - `NodeBridge.offerTask()` 当前仅做日志输出，说明节点桥接目前仍是占位，不应写成已具备稳定下发链路。
 - `src/observability/` 是当前最成熟的落地面，因此很容易让人误以为 TriMC 已整体完成迁移；实际上 observability 已落、控制平面仍薄。
 - `README.md` 的长期目标口径和当前代码成熟度存在差距，registry 需要持续扮演“防过度表述”的收口层。
