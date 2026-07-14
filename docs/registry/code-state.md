@@ -3,7 +3,8 @@
 ## Repository Map
 
 - `src/index.ts`：进程入口，读取环境变量并启动 TriMC HTTP 服务。
-- `src/server/`：当前主装配面；`app.ts` 暴露 `/healthz` 与 `POST /internal/v1/tasks` 两条最小接口。
+- `src/agent-loop/`：Agent 循环实现，`loop.ts` 提供 `agentLoop()` async generator（while-true + tool dispatch），`tools.ts` 提供 6 个内置工具注册表。已吸收 Claude Code queryLoop 模式。Phase 1 吸收分析已完成。
+- `src/server/`：当前主装配面；`app.ts` 暴露 `/healthz` 与 `POST /internal/v1/agent` 两条接口，以及 `GET /internal/v1/agent/stream` SSE 流。
 - `src/task-controller/`：当前是任务接单占位控制器，`controller.ts` 只返回 queued placeholder。
 - `src/node-bridge/`：当前只有 `bridge.ts`，提供 `offerTask()` 占位桥接实现。
 - `src/policy-gate/`：已建目录，说明风险门禁已进入结构预留层，但本轮未见对外主入口装配。
@@ -11,7 +12,9 @@
 - `src/contracts/`、`src/config/`、`src/types/`：协议、配置和类型支撑层。
 - `test/`：当前已有 `observabilityMapper.test.ts` 与 `timelineReplayApi.test.ts` 两组 Node test，覆盖 observability/replay 基线。
 - `sql/`：数据库初始化脚本，当前与 observability 相关落位最直接。
-- `vendor/openclaw/`：上游 shadow 参考基线，需与 TriMC 自研代码显式区分。
+- `vendor/openclaw/`：已裁为薄参考层（2026-07-10 中央收口），社交通道归入 TriGateway，消息队列归入 TriMC，不再作为 agent runtime 参考主线。
+- `vendor/claude-code/`：Claude Code 2.1.88 restored-src 复制的吸收基线，作为 TriMC agent 循环 infra 层。同源代码同时驱动本地 Claude Code CLI 演练场与 TriMC 服务器，保证 dev-prod parity。Phase 1 核心 Loop 吸收分析已完成（`docs/engineering/claude-code-absorption/phase-1-core-loop.md`）。
+- 编排层四组件（v0.2.0 目标）：Soul Loader（agent contract → 系统提示词）、Memory Injector（四层记忆 → memdir/）、Tool Gater（PolicyGate → useCanUseTool hooks）、Context Builder（公司背景 + registry 引用 → CLAUDE.md 注入）。全部嵌入 Claude Code `query.ts` 上下文注入链路，不做重新实现。
 
 ## Current Code Health
 
@@ -19,7 +22,11 @@
 - 当前可运行的服务能力是最小骨架，不是完整控制平面；这让“代码实际成熟度”比目录规划更容易判断。
 - observability/replay 代码与测试相对更具体，其他子系统仍以占位或薄实现为主。
 - 2026-05-26 已补齐独立 git 仓、根级 `.gitignore` 与本地 CodeGraph 标配。
+- 2026-07-10：确立 Claude Code 2.1.88 为 agent infra 层，OpenClaw 裁为薄参考；编排层四组件（Soul/Memory/ToolGater/Context）落地范围与嵌入路径确定。当前 v0.1.0 主干（HTTP server + Agent Contract resolver + observability/replay + heartbeat checker）+ v0.2.0 目标（编排层 + Claude Code 嵌入 + cron daemon）。
+- **商用里程碑约束**：当前 TypeScript 实现为 Phase 2-3 快速验证路径；商用部署前必须择机转为 Go 或其他自主研发语言实现以规避版权风险。此约束需写入工程 ROADMAP 商业里程碑段。
 - 尚未建立 registry 级代码健康评分和 git 热区摘要。
+- **2026-07-14（CARRY-004）**：Docker 多阶段构建完成（137MB）、docker-compose（TriMC + PostgreSQL）健康检查通过（`/healthz` → 200）、K8s manifests 已通过 TriDeployment scaffold 生成（Deployment / Service / HPA / PDB / Kustomization）。
+- **2026-07-14（CTO-007）**：agent loop 接入 TriModel UsageAccumulator，跨 turn TokenUsage 累计，`loop_end` 事件统一携带 `UsageSummary`。
 
 ## Change Tracking Baseline
 
@@ -28,6 +35,7 @@
 - 若 `node-bridge` 开始接入真实 Gateway / node registry / WebSocket 生命周期，也应单独记录从“占位桥接”到“现役桥接”的切换点。
 - 若 future planner/context/tool orchestration/model-call 能力真正落地，应以新增目录、入口文件和测试为准，再更新登记层，不可提前写成已具备。
 - 涉及具体项目代码仓库时，技术侧文档基线应按 `docs/engineering/DESIGN.md`、技术版 `ROADMAP.md`、技术版 `STATE.md` 以及 `docs/execution/<workstream>/<phase>/PLAN.md`、`SUMMARY.md`、`VERIFICATION.md` 维护；若缺失，应视为待补齐的技术或执行层缺口。
+- Claude Code 吸收分析文档位于 `docs/engineering/claude-code-absorption/`，按 Phase 1-4 分阶段产出，当前 Phase 1（核心 Loop）已完成。
 
 ## Git Health
 
