@@ -31,6 +31,7 @@
 - **2026-07-15（CTO-008 Tool Permission System）**：吸收 Claude Code constants/tools.ts 三级权限模型。新增 `permissions.ts`（AgentTier: main/subagent/coordinator），loop.ts 支持 tier 参数和执行前 canUseTool 检查。26 测试 + 全量 111/111 PASS。子代理递归防护（task 工具被禁用于 subagent）。
 - **2026-07-15（CTO-009 Agent Spawn Tier Integration）**：闭合 CTO-008 权限模型的最后缺口——task handler 调用 `agentLoop()` 时注入 `tier: 'subagent'`。子代理实际 spawn 路径上 tier 限制生效（5 工具，无 task）。新增 tool_blocked 事件捕获 + Suite 9 合约测试。全量 115/115 PASS。
 - **2026-07-15（CTO-004 Context Builder）**：v0.2.0 编排层首个落地组件。`src/context-builder/` 提供 `buildContext()` + `mergeContextWithPrompt()`——将项目上下文（AGENTS.md、registry、tier 能力、角色标签）组装为 system prompt 前缀，以 `---` 分隔。`AgentLoopOptions` 新增 `context?: ContextSources`，`agentLoop()` 自动注入。16 测试 + 全量 131/131 PASS。
+- **2026-07-15（CTO-005 Soul Loader）**：v0.2.0 编排层第二个落地组件。`src/soul-loader/` 提供 `contractToPrompt()` + `contractToContextSources()`——将 AgentContract 六要素（Identity/Responsibilities/Decision Rights/Collaborators/Instructions/Tools）转换为结构化 Markdown 系统提示词，写入 ContextSources 以注入 agentLoop pipeline。23 新测试 + 全量 154/154 PASS。
 
 ## Change Tracking Baseline
 
