@@ -328,7 +328,7 @@ register(
     function: {
       name: 'task',
       description:
-        'Launch a sub-agent to handle a complex multi-step task autonomously. The sub-agent has access to all tools and runs up to 10 turns. Returns the sub-agent final result.',
+        'Launch a sub-agent to handle a complex multi-step task autonomously. The sub-agent runs with restricted permissions (5 tools: read/write/edit, shell, glob — no task to prevent recursion) for up to 10 turns. Returns the sub-agent final result.',
       parameters: {
         type: 'object',
         properties: {
@@ -356,6 +356,7 @@ register(
     try {
       for await (const event of agentLoop({
         model: 'deepseek-v4-pro',
+        tier: 'subagent', // CTO-009: enforce subagent tool restrictions
         systemPrompt: `You are a sub-agent executing a specific task. Focus only on completing the assigned task. When done, return your final result concisely. Do not ask follow-up questions — just complete the task.`,
         messages: subMessages,
         maxTurns: 10,
@@ -366,6 +367,9 @@ register(
         }
         if (event.type === 'tool_call') {
           toolCallsMade++;
+        }
+        if (event.type === 'tool_blocked') {
+          errorMessage = `[tier:subagent] blocked tool "${event.tool_name}": ${event.reason}`;
         }
         if (event.type === 'error') {
           errorMessage = event.message;

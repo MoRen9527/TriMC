@@ -29,6 +29,7 @@
 - **2026-07-14（CTO-007）**：agent loop 接入 TriModel UsageAccumulator，跨 turn TokenUsage 累计，`loop_end` 事件统一携带 `UsageSummary`。
 - **2026-07-14（CTO-007 Smoke Test）**：小全+小柯流水线烟雾测试完成。TaskController v1.0（30 tests）+ validate.mjs 验证器（3 门禁，85 tests 全量通过）+ CTO 审查 sign-off。`scripts/validate.mjs` 可用作后续积木的质量门禁工具。
 - **2026-07-15（CTO-008 Tool Permission System）**：吸收 Claude Code constants/tools.ts 三级权限模型。新增 `permissions.ts`（AgentTier: main/subagent/coordinator），loop.ts 支持 tier 参数和执行前 canUseTool 检查。26 测试 + 全量 111/111 PASS。子代理递归防护（task 工具被禁用于 subagent）。
+- **2026-07-15（CTO-009 Agent Spawn Tier Integration）**：闭合 CTO-008 权限模型的最后缺口——task handler 调用 `agentLoop()` 时注入 `tier: 'subagent'`。子代理实际 spawn 路径上 tier 限制生效（5 工具，无 task）。新增 tool_blocked 事件捕获 + Suite 9 合约测试。全量 115/115 PASS。
 
 ## Change Tracking Baseline
 

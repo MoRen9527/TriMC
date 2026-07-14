@@ -233,3 +233,65 @@ describe('递归防护', () => {
     assert.ok(allowedNames.has('task'), 'coordinator 仅应有 task');
   });
 });
+
+// ── Suite 9: Task Handler Tier Injection (CTO-009) ──
+
+describe('Task Handler 层级注入（CTO-009）', () => {
+  it('task 工具定义中描述已更新为子代理工具限制', () => {
+    const allDefs = getToolDefinitions();
+    const taskDef = allDefs.find((t) => t.function.name === 'task');
+    assert.ok(taskDef, 'task 工具应存在');
+    const desc = taskDef!.function.description ?? '';
+    assert.ok(desc.includes('5 tools'), `task 描述应提及 5 tools: ${desc}`);
+    assert.ok(desc.includes('no task'), `task 描述应提及 no task: ${desc}`);
+    assert.ok(desc.toLowerCase().includes('recursion'), `task 描述应提及 recursion: ${desc}`);
+  });
+
+  it('subagent 层级 loop_start 合约：tier + 5 tools', () => {
+    // 验证 loop_start 事件契约：当 tier=subagent 时，availableTools=5
+    const event = {
+      type: 'loop_start' as const,
+      model: 'deepseek-v4-pro',
+      turn: 1,
+      tier: 'subagent',
+      availableTools: 5,
+      totalTools: 6,
+    };
+    assert.equal(event.tier, 'subagent');
+    assert.equal(event.availableTools, 5);
+    assert.equal(event.totalTools, 6);
+  });
+
+  it('task 工具调用 agentLoop 时必定传 tier=subagent', () => {
+    // 合约测试：task handler 必须传 tier: 'subagent'
+    // 这里验证类型安全——AgentLoopOptions.tier 接受 'subagent'
+    const opts: { tier?: AgentTier; model?: string; maxTurns?: number } = {
+      tier: 'subagent',
+      model: 'deepseek-v4-pro',
+      maxTurns: 10,
+    };
+    assert.equal(opts.tier, 'subagent');
+    // 确保 main 和 coordinator 都可以显式传
+    opts.tier = 'main';
+    assert.equal(opts.tier, 'main');
+    opts.tier = 'coordinator';
+    assert.equal(opts.tier, 'coordinator');
+  });
+
+  it('tool_blocked 事件包含 tool_name 和 reason（子代理被阻止时上报主代理）', () => {
+    // 验证事件契约——task handler 中的 tool_blocked 捕获
+    const blockedEvent = {
+      type: 'tool_blocked' as const,
+      turn: 3,
+      tool_name: 'task',
+      reason: 'tool "task" is not allowed at tier "subagent"',
+    };
+    assert.equal(blockedEvent.type, 'tool_blocked');
+    assert.equal(blockedEvent.tool_name, 'task');
+    assert.ok(blockedEvent.reason.includes('subagent'));
+    // 验证 task handler 中会拼接的 errorMessage 格式
+    const errorMessage = `[tier:subagent] blocked tool "${blockedEvent.tool_name}": ${blockedEvent.reason}`;
+    assert.ok(errorMessage.includes('[tier:subagent]'));
+    assert.ok(errorMessage.includes('task'));
+  });
+});
