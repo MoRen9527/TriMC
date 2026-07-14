@@ -6,6 +6,7 @@
 import { createModelClient, UsageAccumulator, type Message, type ToolCall, type UsageSummary } from 'trimodel';
 import { getToolDefinitions, executeTool } from './tools.js';
 import { canUseTool, getTierSummary, type AgentTier } from './permissions.js';
+import { buildContext, mergeContextWithPrompt, type ContextSources } from '../context-builder/context-builder.js';
 
 // ── Query Options ──
 
@@ -20,6 +21,12 @@ export interface AgentLoopOptions {
   messages?: Message[];
   /** Working directory for tool execution */
   cwd?: string;
+  /**
+   * CTO-004: Context sources for system prompt injection.
+   * When provided, buildContext() assembles project background (AGENTS.md, registry, tier capabilities)
+   * and merges it as a prefix before the user's system prompt.
+   */
+  context?: ContextSources;
   /**
    * CTO-008: Agent tier determines tool access.
    * - 'main' (default): All 6 built-in tools
@@ -59,10 +66,17 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
   const allTools = getToolDefinitions();
   const tools = getToolDefinitions(tier); // CTO-008: tier-filtered tools
 
+  // CTO-004: Build context prefix from ContextSources if provided
+  let effectiveSystemPrompt = options.systemPrompt;
+  if (options.context) {
+    const contextBlock = buildContext(options.context);
+    effectiveSystemPrompt = mergeContextWithPrompt(contextBlock, options.systemPrompt);
+  }
+
   // Build initial messages array
   const seedMessages: Message[] = [];
-  if (options.systemPrompt) {
-    seedMessages.push({ role: 'system', content: options.systemPrompt });
+  if (effectiveSystemPrompt) {
+    seedMessages.push({ role: 'system', content: effectiveSystemPrompt });
   }
   if (options.messages) {
     seedMessages.push(...options.messages);
