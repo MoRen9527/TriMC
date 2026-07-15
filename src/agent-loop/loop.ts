@@ -17,6 +17,8 @@ import {
   type CacheState,
   type CacheMetrics,
 } from '../prompt-cache/index.js';
+import { PermissionEngine, type PermissionEngineOptions } from './permissions-engine/index.js';
+import type { PermissionMode, PermissionRule } from './permissions-engine/types.js';
 
 // ── Query Options ──
 
@@ -54,6 +56,24 @@ export interface AgentLoopOptions {
    */
   toolSpecs?: ToolSpec[];
   /**
+   * CTO-003 P4T1: Permission mode for runtime execution decisions.
+   * - 'default': Rules + safety check apply. Default deny without matching allow rule.
+   * - 'acceptEdits': Auto-accept write_file/edit_file within CWD (other tools default deny).
+   * - 'bypassPermissions': Allow all tools except deny rules and safety checks.
+   * When not set, defaults to 'bypassPermissions' (transparent — relies on tier+gater).
+   */
+  permissionMode?: PermissionMode;
+  /**
+   * CTO-003 P4T1: Permission rules for the engine.
+   * Claude Code-compatible rules parsed via parseRule().
+   */
+  permissionRules?: PermissionRule[];
+  /**
+   * CTO-003 P4T1: Pre-configured PermissionEngine instance.
+   * When provided, permissionMode and permissionRules are ignored.
+   */
+  permissionEngine?: PermissionEngine;
+  /**
    * CTO-003 P1: AbortSignal for cancelling in-flight requests.
    * When the signal is aborted, the loop terminates gracefully.
    */
@@ -63,7 +83,7 @@ export interface AgentLoopOptions {
 // ── Streaming Event Types ──
 
 export type AgentEvent =
-  | { type: 'loop_start'; model: string; fallbackModel?: string; turn: number; tier?: string; availableTools?: number; totalTools?: number }
+  | { type: 'loop_start'; model: string; fallbackModel?: string; turn: number; tier?: string; availableTools?: number; totalTools?: number; permissionMode?: string; permissionRules?: number }
   | { type: 'request_start'; turn: number; model: string }
   | { type: 'content_delta'; turn: number; delta: string }
   | { type: 'assistant_message'; turn: number; content: string | null; tool_calls?: ToolCall[] }
@@ -207,6 +227,16 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
   updateCacheState(cacheState, seedMessages, tools, 0);
   const cacheConfig = getCacheControlConfig(model);
 
+  // CTO-003 P4T1: Initialize permission engine
+  // When not explicitly configured, default to bypassPermissions so the engine
+  // is transparent (safety checks only) — tier+gater handles the other checks.
+  const permissionEngine = options.permissionEngine ??
+    new PermissionEngine({
+      mode: options.permissionMode ?? 'bypassPermissions',
+      rules: options.permissionRules ?? [],
+      cwd: options.cwd,
+    });
+
   // CTO-008: Log tier info on start
   const tierSummary = getTierSummary();
   const tierToolCount = tierSummary[tier].count;
@@ -220,6 +250,8 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
     tier,
     availableTools: tierToolCount,
     totalTools: totalToolCount,
+    permissionMode: permissionEngine.getMode(),
+    permissionRules: permissionEngine.getRules().length,
   } as AgentEvent;
 
   // CTO-003 P1: Track current model (may change on fallback)
@@ -370,24 +402,7 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
     for (const tc of response.tool_calls) {
       yield { type: 'tool_call', turn: state.turnCount, id: tc.id, name: tc.function.name, arguments: tc.function.arguments };
 
-      // CTO-011: Unified permission check (tier + risk-level policy gate)
-      const permission = checkToolPermission(tc.function.name, tier, options.toolSpecs);
-      if (!permission.allowed) {
-        const blockMsg = `Tool "${tc.function.name}" blocked at tier "${tier}": ${permission.reason}`;
-        yield {
-          type: 'tool_blocked',
-          turn: state.turnCount,
-          tool_name: tc.function.name,
-          reason: permission.reason ?? 'unknown',
-        };
-        toolResults.push({
-          role: 'tool',
-          tool_call_id: tc.id,
-          content: JSON.stringify({ error: blockMsg }),
-        });
-        continue;
-      }
-
+      // Parse tool arguments early (needed for both permission layers)
       let args: Record<string, unknown> = {};
       try {
         args = typeof tc.function.arguments === 'string'
@@ -395,6 +410,45 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
           : (tc.function.arguments as Record<string, unknown>);
       } catch {
         args = {};
+      }
+
+      // CTO-003 P4T1: Permission Engine check (runtime per-invocation decisions)
+      const engineDecision = permissionEngine.decide(tc.function.name, args);
+      if (!engineDecision.allowed) {
+        const blockReason = engineDecision.reason ?? `Blocked by permission engine (${engineDecision.decidedBy})`;
+        yield {
+          type: 'tool_blocked',
+          turn: state.turnCount,
+          tool_name: tc.function.name,
+          reason: blockReason,
+        };
+        toolResults.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: JSON.stringify({
+            error: `Tool "${tc.function.name}" blocked: ${blockReason}`,
+            permission_decision: engineDecision,
+          }),
+        });
+        continue;
+      }
+
+      // CTO-011: Tier + risk-level policy gate (second layer after permission engine)
+      const tierPermission = checkToolPermission(tc.function.name, tier, options.toolSpecs);
+      if (!tierPermission.allowed) {
+        const blockMsg = `Tool "${tc.function.name}" blocked at tier "${tier}": ${tierPermission.reason}`;
+        yield {
+          type: 'tool_blocked',
+          turn: state.turnCount,
+          tool_name: tc.function.name,
+          reason: tierPermission.reason ?? 'unknown',
+        };
+        toolResults.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: JSON.stringify({ error: blockMsg }),
+        });
+        continue;
       }
 
       const resultContent = await executeTool(tc.function.name, args);
