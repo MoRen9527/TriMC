@@ -5,8 +5,9 @@
 
 import { createModelClient, UsageAccumulator, type Message, type ToolCall, type UsageSummary } from 'trimodel';
 import { getToolDefinitions, executeTool } from './tools.js';
-import { canUseTool, getTierSummary, type AgentTier } from './permissions.js';
+import { getTierSummary, type AgentTier } from './permissions.js';
 import { buildContext, mergeContextWithPrompt, type ContextSources } from '../context-builder/context-builder.js';
+import { checkToolPermission, type ToolSpec } from '../tool-gater/gater.js';
 
 // ── Query Options ──
 
@@ -34,6 +35,13 @@ export interface AgentLoopOptions {
    * - 'coordinator': task only
    */
   tier?: AgentTier;
+  /**
+   * CTO-011: Contract-defined tool specs for risk-level policy gating.
+   * When provided, checkToolPermission() combines tier check with
+   * risk-level evaluation (low→auto, medium→audit, high→block, critical→deny).
+   * When omitted, only tier check applies (backward compatible).
+   */
+  toolSpecs?: ToolSpec[];
 }
 
 // ── Streaming Event Types ──
@@ -159,8 +167,8 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
     for (const tc of response.tool_calls) {
       yield { type: 'tool_call', turn: state.turnCount, tool_call: tc };
 
-      // CTO-008: Permission check before execution
-      const permission = canUseTool(tc.function.name, tier);
+      // CTO-011: Unified permission check (tier + risk-level policy gate)
+      const permission = checkToolPermission(tc.function.name, tier, options.toolSpecs);
       if (!permission.allowed) {
         const blockMsg = `Tool "${tc.function.name}" blocked at tier "${tier}": ${permission.reason}`;
         yield {
