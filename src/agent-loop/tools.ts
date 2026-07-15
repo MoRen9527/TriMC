@@ -9,8 +9,7 @@ import { exec as execCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readdirSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
-import type { ToolDefinition, Message } from 'trimodel';
-import { agentLoop } from './loop.js';
+import type { ToolDefinition } from 'trimodel';
 import { filterToolsForTier, type AgentTier } from './permissions.js';
 
 const execAsync = promisify(execCb);
@@ -321,6 +320,27 @@ register(
 );
 
 // ── Tool: task (sub-agent dispatch) ──
+// P3T1: Integrated with sub-agent spawn system (AgentDefinition + tools resolve + permission inherit).
+
+import { spawnAgent, type AgentType } from './sub-agent/index.js';
+
+const SUBAGENT_TYPE_MAP: Record<string, AgentType> = {
+  explore: 'explore',
+  explorer: 'explore',
+  plan: 'plan',
+  planner: 'plan',
+  verify: 'verification',
+  verification: 'verification',
+  general: 'general-purpose',
+  'general-purpose': 'general-purpose',
+  code: 'general-purpose',
+};
+
+function resolveAgentType(hint: string | undefined): AgentType {
+  if (!hint) return 'general-purpose';
+  const key = hint.toLowerCase().trim();
+  return SUBAGENT_TYPE_MAP[key] ?? 'general-purpose';
+}
 
 register(
   {
@@ -328,13 +348,13 @@ register(
     function: {
       name: 'task',
       description:
-        'Launch a sub-agent to handle a complex multi-step task autonomously. The sub-agent runs with restricted permissions (5 tools: read/write/edit, shell, glob — no task to prevent recursion) for up to 10 turns. Returns the sub-agent final result.',
+        'Launch a sub-agent to handle a complex multi-step task autonomously. Available agent types: general-purpose (full subagent tools, default), explore (read-only code search), plan (read-only analysis + step-by-step planning), verification (test/build validation, returns PASS/FAIL/PARTIAL). Sub-agents run at subagent tier (no task tool to prevent recursion).',
       parameters: {
         type: 'object',
         properties: {
           description: { type: 'string', description: 'Short description of the task (3-5 words).' },
           prompt: { type: 'string', description: 'The full task description for the sub-agent.' },
-          subagent_type: { type: 'string', description: 'Optional type hint for the sub-agent (e.g. "explore", "plan", "code").' },
+          subagent_type: { type: 'string', description: 'Agent type: "explore" (read-only search), "plan" (step-by-step planning), "verification" (test/build check), "general-purpose" (default, full tools).' },
         },
         required: ['description', 'prompt'],
       },
@@ -347,49 +367,56 @@ register(
       return JSON.stringify({ error: 'description and prompt are required' });
     }
 
-    const subMessages: Message[] = [{ role: 'user', content: prompt }];
-    const events: Array<{ type: string; content?: string }> = [];
-    let finalContent: string | null = null;
-    let toolCallsMade = 0;
-    let errorMessage: string | null = null;
+    const agentType = resolveAgentType(args.subagent_type as string | undefined);
+    let collectedContent = '';
 
     try {
-      for await (const event of agentLoop({
-        model: 'deepseek-v4-pro',
-        tier: 'subagent', // CTO-009: enforce subagent tool restrictions
-        systemPrompt: `You are a sub-agent executing a specific task. Focus only on completing the assigned task. When done, return your final result concisely. Do not ask follow-up questions — just complete the task.`,
-        messages: subMessages,
-        maxTurns: 10,
+      for await (const event of spawnAgent({
+        agentType,
+        prompt,
+        description,
+        cwd: process.cwd(),
       })) {
-        events.push({ type: event.type, ...(event as Record<string, unknown>) } as never);
-        if (event.type === 'assistant_message' && event.content) {
-          finalContent = event.content;
+        if (event.type === 'subagent_delta') {
+          collectedContent += event.delta;
         }
-        if (event.type === 'tool_call') {
-          toolCallsMade++;
+        if (event.type === 'subagent_error') {
+          return JSON.stringify({
+            ok: false,
+            description,
+            agent_type: agentType,
+            error: event.error,
+          });
         }
-        if (event.type === 'tool_blocked') {
-          errorMessage = `[tier:subagent] blocked tool "${event.tool_name}": ${event.reason}`;
-        }
-        if (event.type === 'error') {
-          errorMessage = event.message;
+        if (event.type === 'subagent_done') {
+          const result = event.result;
+          return JSON.stringify({
+            ok: !result.error,
+            description: result.description,
+            agent_type: result.agentType,
+            agent_id: result.agentId,
+            tool_calls_made: result.toolCallsMade,
+            turns_executed: result.turnsExecuted,
+            finish_reason: result.finishReason,
+            content: collectedContent || result.content || '(no output)',
+            error: result.error ?? undefined,
+          });
         }
       }
 
       return JSON.stringify({
         ok: true,
         description,
-        tool_calls_made: toolCallsMade,
-        events_count: events.length,
-        content: finalContent ?? '(no output)',
-        error: errorMessage,
+        agent_type: agentType,
+        content: collectedContent || '(no output)',
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return JSON.stringify({
+        ok: false,
         error: `sub-agent failed: ${msg}`,
         description,
-        content: finalContent,
+        agent_type: agentType,
       });
     }
   },
