@@ -4,7 +4,8 @@
 
 - `src/index.ts`：进程入口，读取环境变量并启动 TriMC HTTP 服务。
 - `src/agent-loop/`：Agent 循环实现，`loop.ts` 提供 `agentLoop()` async generator（while-true + tool dispatch + context injection），`tools.ts` 提供 6 个内置工具注册表（含 task 子代理 spawn），`permissions.ts` 提供三级代理权限模型（main/subagent/coordinator）。已吸收 Claude Code queryLoop 和 constants/tools.ts 权限模式。Phase 1-4 吸收分析已完成，CTO-008/009 权限系统已闭环，CTO-004 Context Builder 已集成。
-- `src/server/`：当前主装配面；`app.ts` 暴露 `/healthz` 与 `POST /internal/v1/agent` 两条接口，以及 `GET /internal/v1/agent/stream` SSE 流。
+- `src/server/`：当前主装配面；`app.ts` 暴露 `/healthz` 与 `POST /internal/v1/agent` 两条接口，以及 SSE 流。已集成 v0.2.0 编排层（pipeline assembler）。
+- `src/pipeline/`：**NEW CTO-013**。`assemble.ts` 提供 `assemblePipelineOptions()`——将 AgentContract 通过 Soul Loader → Memory Injector → Context Builder → Tool Gater 四阶段组装为 `AgentLoopOptions`。
 - `src/task-controller/`：**v1.0 已完成**（CTO-007）。`controller.ts` 提供完整任务生命周期：`createTask`/`getTask`/`listTasks`/`updateTaskStatus` + 状态机（queued→running→completed/failed/cancelled）+ 终态不可逆 + 向后兼容 `acceptPlaceholder`。30 tests，全部通过。
 - `src/node-bridge/`：当前只有 `bridge.ts`，提供 `offerTask()` 占位桥接实现。
 - `src/policy-gate/`：已建目录，说明风险门禁已进入结构预留层，但本轮未见对外主入口装配。
@@ -35,6 +36,7 @@
 - **2026-07-15（CTO-006 Memory Injector）**：v0.2.0 编排层第三个落地组件。`src/memory-injector/` 提供 `injectAll()` + `buildMemoryContext()` + `contractToSoulMemory()`——将四层记忆（soul/memory/colleagues/social）转换为 memdir/ Markdown 文件（YAML frontmatter + body），产出 `extraContext` 行注入 Context Builder pipeline。吸收 Claude Code memdir/ 约定。25 新测试 + 全量 179/179 PASS。
 - **2026-07-15（CTO-011 Tool Gater）**：v0.2.0 编排层第四/最后一个组件。`src/tool-gater/` 提供 `checkToolPermission()` + `createToolGater()` + `summarizeGater()`——将 tier-based 权限（permissions.ts）和 contract-driven risk 评估（PolicyGateService）合并为统一门禁 hook，注入 agentLoop 工具分发前检查。两层模型：tier 优先 → risk 评估（low→auto, medium→audit, high→block, critical→deny）。`AgentLoopOptions.toolSpecs` 可选，向后兼容。27 新测试 + 全量 206/206 PASS。**v0.2.0 编排层 4/4 完成** 🎉。
 - **2026-07-15（CTO-012 Pipeline Integration）**：v0.2.0 编排层端到端集成测试。`test/pipeline-integration/pipeline.test.ts` 验证 `assemblePipeline()`——将四组件（Soul Loader / Memory Injector / Context Builder / Tool Gater）从 AgentContract 到 AgentLoopOptions 的完整流水线组装。7 suites, 34 tests。全量 240/240 PASS, tsc clean。小柯验证模式。**v0.2.0 集成验证完成** ✅。
+- **2026-07-15（CTO-013 Server Assembly）**：将 v0.2.0 编排层四组件装配到 `POST /internal/v1/agent` HTTP 端点。新增 `src/pipeline/assemble.ts`（生产级流水线装配器，`assemblePipelineOptions()`），更新 `app.ts` 支持 `contract: AgentContract` 字段触发完整流水线（Soul Loader → Memory Injector → Context Builder → Tool Gater → AgentLoopOptions）。向后兼容（无 contract → 原生 agentLoop）。Memory Injector 可选（`TRIMC_MEMDIR` 环境变量控制）。`env.ts` 新增 `cwd` 和 `memdirPath` 字段。全量 240/240 PASS, tsc clean。**v0.2.0 生产装配完成** ✅。
 
 ## Change Tracking Baseline
 

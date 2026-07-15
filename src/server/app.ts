@@ -4,6 +4,9 @@ import { TaskController } from '../task-controller/controller.js';
 import { createModelClient, type Message } from 'trimodel';
 import { agentLoop } from '../agent-loop/loop.js';
 import type { AgentEvent } from '../agent-loop/loop.js';
+import { assemblePipelineOptions } from '../pipeline/assemble.js';
+import type { AgentContract } from '../contracts/agent-contract.js';
+import type { AgentTier } from '../agent-loop/permissions.js';
 
 export function createTriMCApp(env: TriMCEnv) {
   const taskController = new TaskController();
@@ -107,13 +110,56 @@ export function createTriMCApp(env: TriMCEnv) {
             chunks.push(chunk);
           }
           const raw = Buffer.concat(chunks).toString('utf-8');
-          let parsed: { model?: string; systemPrompt?: string; messages?: Message[]; maxTurns?: number };
+          let parsed: {
+            model?: string;
+            systemPrompt?: string;
+            messages?: Message[];
+            maxTurns?: number;
+            contract?: AgentContract;
+            tier?: AgentTier;
+            cwd?: string;
+          };
           try {
             parsed = JSON.parse(raw);
           } catch {
             res.writeHead(400, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ error: 'invalid_json' }));
             return;
+          }
+
+          // ── Pipeline Assembly (when contract is present) ──
+          let loopOptions: Parameters<typeof agentLoop>[0];
+          const hasContract = !!parsed.contract;
+
+          if (hasContract) {
+            try {
+              const assembly = await assemblePipelineOptions({
+                contract: parsed.contract!,
+                tier: parsed.tier ?? 'main',
+                cwd: parsed.cwd ?? env.cwd,
+                maxTurns: parsed.maxTurns ?? 25,
+                model: parsed.model ?? 'deepseek-v4-pro',
+                memdirPath: env.memdirPath,
+                systemPromptOverride: parsed.systemPrompt,
+              });
+              loopOptions = {
+                ...assembly.options,
+                messages: parsed.messages ?? [],
+              };
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              res.writeHead(500, { 'content-type': 'application/json' });
+              res.end(JSON.stringify({ error: 'pipeline_assembly_error', message: msg }));
+              return;
+            }
+          } else {
+            // ── Legacy raw mode (backward compatible) ──
+            loopOptions = {
+              model: parsed.model ?? 'deepseek-v4-pro',
+              systemPrompt: parsed.systemPrompt ?? '',
+              messages: parsed.messages ?? [],
+              maxTurns: parsed.maxTurns ?? 25,
+            };
           }
 
           // ── SSE vs JSON mode detection ──
@@ -136,12 +182,7 @@ export function createTriMCApp(env: TriMCEnv) {
             };
 
             try {
-              for await (const event of agentLoop({
-                model: parsed.model,
-                systemPrompt: parsed.systemPrompt,
-                messages: parsed.messages,
-                maxTurns: parsed.maxTurns ?? 25,
-              })) {
+              for await (const event of agentLoop(loopOptions)) {
                 writeSSE(event.type, event);
               }
               res.write('data: [DONE]\n\n');
@@ -155,15 +196,10 @@ export function createTriMCApp(env: TriMCEnv) {
             return;
           }
 
-          // ── JSON mode (backward compatible) ──
+          // ── JSON mode ──
           const events: AgentEvent[] = [];
           try {
-            for await (const event of agentLoop({
-              model: parsed.model,
-              systemPrompt: parsed.systemPrompt,
-              messages: parsed.messages,
-              maxTurns: parsed.maxTurns ?? 25,
-            })) {
+            for await (const event of agentLoop(loopOptions)) {
               events.push(event);
             }
             res.writeHead(200, { 'content-type': 'application/json' });
