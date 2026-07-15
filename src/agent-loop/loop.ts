@@ -8,6 +8,14 @@ import { getToolDefinitions, executeTool } from './tools.js';
 import { getTierSummary, type AgentTier } from './permissions.js';
 import { buildContext, mergeContextWithPrompt, type ContextSources } from '../context-builder/context-builder.js';
 import { checkToolPermission, type ToolSpec } from '../tool-gater/gater.js';
+import {
+  createCacheState,
+  updateCacheState,
+  buildCacheMetrics,
+  getCacheControlConfig,
+  type CacheState,
+  type CacheMetrics,
+} from '../prompt-cache/index.js';
 
 // ── Query Options ──
 
@@ -54,6 +62,7 @@ export type AgentEvent =
   | { type: 'tool_result'; turn: number; tool_call_id: string; content: string; is_error?: boolean }
   | { type: 'tool_blocked'; turn: number; tool_name: string; reason: string }
   | { type: 'loop_end'; reason: 'done' | 'max_turns' | 'error' | 'tool_calls_finish'; finish_reason?: string; usageSummary?: UsageSummary }
+  | { type: 'cache_metrics'; metrics: CacheMetrics }
   | { type: 'error'; message: string };
 
 // ── Agent Loop State (mirrors Claude Code State pattern) ──
@@ -98,6 +107,11 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
 
   const accumulator = new UsageAccumulator();
 
+  // CTO-003 P0: Initialize prompt cache state for this session
+  const cacheState: CacheState = createCacheState();
+  updateCacheState(cacheState, seedMessages, tools, 0);
+  const cacheConfig = getCacheControlConfig(model);
+
   // CTO-008: Log tier info on start
   const tierSummary = getTierSummary();
   const tierToolCount = tierSummary[tier].count;
@@ -124,8 +138,17 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
 
     let response;
     try {
+      // CTO-003 P0: Update cache state before API call (detect system/tool changes)
+      updateCacheState(cacheState, state.messages, tools, state.turnCount);
+
       response = await modelClient.chat(model, state.messages, { tools: tools.length > 0 ? tools : undefined });
       accumulator.add(response);
+
+      // CTO-003 P0: Build and yield cache metrics for this turn
+      if (response.usage) {
+        const metrics = buildCacheMetrics(cacheState, response.usage.prompt_tokens, state.turnCount);
+        yield { type: 'cache_metrics', metrics };
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       yield { type: 'error', message: msg };
