@@ -50,10 +50,10 @@ export type AgentEvent =
   | { type: 'loop_start'; model: string; turn: number; tier?: string; availableTools?: number; totalTools?: number }
   | { type: 'request_start'; turn: number }
   | { type: 'assistant_message'; turn: number; content: string | null; tool_calls?: ToolCall[] }
-  | { type: 'tool_call'; turn: number; tool_call: ToolCall }
+  | { type: 'tool_call'; turn: number; id: string; name: string; arguments: string }
   | { type: 'tool_result'; turn: number; tool_call_id: string; content: string; is_error?: boolean }
   | { type: 'tool_blocked'; turn: number; tool_name: string; reason: string }
-  | { type: 'loop_end'; reason: 'done' | 'max_turns' | 'error' | 'tool_calls_finish'; finish_reason?: string; usage?: UsageSummary }
+  | { type: 'loop_end'; reason: 'done' | 'max_turns' | 'error' | 'tool_calls_finish'; finish_reason?: string; usageSummary?: UsageSummary }
   | { type: 'error'; message: string };
 
 // ── Agent Loop State (mirrors Claude Code State pattern) ──
@@ -115,7 +115,7 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
   while (true) {
     // ── Max turns guard ──
     if (state.turnCount > maxTurns) {
-      yield { type: 'loop_end', reason: 'max_turns', usage: accumulator.summary() };
+      yield { type: 'loop_end', reason: 'max_turns', usageSummary: accumulator.summary() };
       return;
     }
 
@@ -129,7 +129,7 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       yield { type: 'error', message: msg };
-      yield { type: 'loop_end', reason: 'error', usage: accumulator.summary() };
+      yield { type: 'loop_end', reason: 'error', usageSummary: accumulator.summary() };
       return;
     }
 
@@ -157,7 +157,7 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
         type: 'loop_end',
         reason: 'done',
         finish_reason: response.finish_reason ?? undefined,
-        usage: accumulator.summary(),
+        usageSummary: accumulator.summary(),
       };
       return;
     }
@@ -165,7 +165,7 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
     // ── Execute tools ──
     const toolResults: Message[] = [];
     for (const tc of response.tool_calls) {
-      yield { type: 'tool_call', turn: state.turnCount, tool_call: tc };
+      yield { type: 'tool_call', turn: state.turnCount, id: tc.id, name: tc.function.name, arguments: tc.function.arguments };
 
       // CTO-011: Unified permission check (tier + risk-level policy gate)
       const permission = checkToolPermission(tc.function.name, tier, options.toolSpecs);
@@ -223,11 +223,11 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
 export async function runAgentLoop(options: AgentLoopOptions): Promise<{
   events: AgentEvent[];
   finalMessage: string | null;
-  usage: UsageSummary | undefined;
+  usageSummary: UsageSummary | undefined;
 }> {
   const events: AgentEvent[] = [];
   let finalMessage: string | null = null;
-  let usage: UsageSummary | undefined;
+  let usageSummary: UsageSummary | undefined;
 
   for await (const event of agentLoop(options)) {
     events.push(event);
@@ -235,9 +235,9 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<{
       finalMessage = event.content;
     }
     if (event.type === 'loop_end') {
-      usage = event.usage;
+      usageSummary = event.usageSummary;
     }
   }
 
-  return { events, finalMessage, usage };
+  return { events, finalMessage, usageSummary };
 }

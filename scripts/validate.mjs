@@ -20,7 +20,7 @@ const repoRoot = resolve(__dirname, '..');
 process.chdir(repoRoot);
 
 const args = process.argv.slice(2);
-let target = 'test/**/*.test.ts'; // default
+let target = 'test/**/*.test.ts'; // default (E2E tests skip when no API key)
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--target' && i + 1 < args.length) {

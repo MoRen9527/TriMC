@@ -2,10 +2,14 @@
 // CTO-015: Validates the full v0.2.0 pipeline with real DeepSeek API calls.
 // Tests: contract-driven agent loop, tool calling, usage summary, multi-turn conversation.
 //
-// PREREQUISITE: DEEPSEEK_API_KEY env var must be set.
+// PREREQUISITE: DEEPSEEK_API_KEY must be set in TriModel/.env
 // All tests skip gracefully if the key is absent.
 //
 // RUN: node --import tsx --test --test-timeout=120000 test/e2e/real-model-agent.test.ts
+
+// Import TriModel early �?triggers config.ts top-level dotenv load,
+// populating process.env from TriModel/.env before the HAS_API_KEY check.
+import 'trimodel';
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,7 +20,7 @@ import type { AgentContract } from '../../src/contracts/agent-contract.js';
 // ── Gate: skip if no API key ──
 
 const HAS_API_KEY = !!process.env.DEEPSEEK_API_KEY;
-const skipReason = HAS_API_KEY ? undefined : 'DEEPSEEK_API_KEY not set — skipping E2E';
+const skipReason = HAS_API_KEY ? undefined : 'DEEPSEEK_API_KEY not set in TriModel/.env �?skipping E2E';
 
 // ── Test Fixtures ──
 
@@ -27,7 +31,7 @@ const E2E_CTO_CONTRACT: AgentContract = {
     display_name: '小狄',
     family: 'Role',
     role: 'Chief Technology Officer',
-    description: 'CTO of TriCompany — delivers technical roadmap and code quality.',
+    description: 'CTO of TriCompany �?delivers technical roadmap and code quality.',
     user_invocable: true,
   },
   responsibilities: [
@@ -119,9 +123,9 @@ function parseSSE(text: string): Array<{ event: string; data: unknown }> {
   return results;
 }
 
-// ── Suite 1: Simple Q&A — validates pipeline assembly + single-turn response ──
+// ── Suite 1: Simple Q&A �?validates pipeline assembly + single-turn response ──
 
-describe('E2E: Real model — Contract-driven Q&A', { skip: skipReason }, () => {
+describe('E2E: Real model �?Contract-driven Q&A', { skip: skipReason }, () => {
   let serverUrl: string;
   let app: { start(): Promise<void>; stop(): Promise<void>; port: number };
 
@@ -166,7 +170,7 @@ describe('E2E: Real model — Contract-driven Q&A', { skip: skipReason }, () => 
     // Verify usage summary
     const loopEnd = loopEnds[0];
     assert.ok(loopEnd.usageSummary, 'loop_end should have usageSummary');
-    assert.ok(loopEnd.usageSummary.total_tokens > 0, 'should have consumed tokens');
+    assert.ok(loopEnd.usageSummary.tokens.total_tokens > 0, 'should have consumed tokens');
   });
 
   it('responds through contract pipeline [SSE stream]', { timeout: 60000 }, async () => {
@@ -200,9 +204,9 @@ describe('E2E: Real model — Contract-driven Q&A', { skip: skipReason }, () => 
   });
 });
 
-// ── Suite 2: Tool Calling — validates multi-turn agent loop with real tools ──
+// ── Suite 2: Tool Calling �?validates multi-turn agent loop with real tools ──
 
-describe('E2E: Real model — Tool calling', { skip: skipReason }, () => {
+describe('E2E: Real model �?Tool calling', { skip: skipReason }, () => {
   let serverUrl: string;
   let app: { start(): Promise<void>; stop(): Promise<void>; port: number };
   const fixturePath = join(tmpdir(), 'trimc-e2e-test.txt');
@@ -242,7 +246,7 @@ describe('E2E: Real model — Tool calling', { skip: skipReason }, () => {
     const toolResults = body.events.filter((e: any) => e.type === 'tool_result');
 
     if (toolCalls.length > 0) {
-      // Model used tools — verify the pipeline
+      // Model used tools �?verify the pipeline
       assert.ok(toolResults.length > 0, 'should have tool_result after tool_call');
       const call = toolCalls[0];
       assert.ok(call.name, 'tool_call should have name');
@@ -256,7 +260,7 @@ describe('E2E: Real model — Tool calling', { skip: skipReason }, () => {
     const loopEnds = body.events.filter((e: any) => e.type === 'loop_end');
     assert.equal(loopEnds.length, 1);
     assert.ok(loopEnds[0].usageSummary, 'should have usageSummary');
-    assert.ok(loopEnds[0].usageSummary.total_tokens > 0);
+    assert.ok(loopEnds[0].usageSummary.tokens.total_tokens > 0);
 
     // Content should reference E2E marker from the file
     const content = messages.map((e: any) => e.content).join(' ').toLowerCase();
@@ -267,9 +271,9 @@ describe('E2E: Real model — Tool calling', { skip: skipReason }, () => {
   });
 });
 
-// ── Suite 3: Backward Compat — no contract still works with real model ──
+// ── Suite 3: Backward Compat �?no contract still works with real model ──
 
-describe('E2E: Real model — Legacy no-contract', { skip: skipReason }, () => {
+describe('E2E: Real model �?Legacy no-contract', { skip: skipReason }, () => {
   let serverUrl: string;
   let app: { start(): Promise<void>; stop(): Promise<void>; port: number };
 
@@ -302,13 +306,13 @@ describe('E2E: Real model — Legacy no-contract', { skip: skipReason }, () => {
 
     const loopEnds = body.events.filter((e: any) => e.type === 'loop_end');
     assert.equal(loopEnds.length, 1);
-    assert.ok(loopEnds[0].usageSummary?.total_tokens > 0);
+    assert.ok(loopEnds[0].usageSummary?.tokens.total_tokens > 0);
   });
 });
 
 // ── Suite 4: Multi-turn conversation ──
 
-describe('E2E: Real model — Multi-turn', { skip: skipReason }, () => {
+describe('E2E: Real model �?Multi-turn', { skip: skipReason }, () => {
   let serverUrl: string;
   let app: { start(): Promise<void>; stop(): Promise<void>; port: number };
 
@@ -345,6 +349,6 @@ describe('E2E: Real model — Multi-turn', { skip: skipReason }, () => {
 
     const loopEnds = body.events.filter((e: any) => e.type === 'loop_end');
     assert.equal(loopEnds.length, 1);
-    assert.ok(loopEnds[0].usageSummary?.total_tokens > 0);
+    assert.ok(loopEnds[0].usageSummary?.tokens.total_tokens > 0);
   });
 });
