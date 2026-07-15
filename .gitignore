@@ -12,3 +12,6 @@ coverage/
 # Local env
 .env
 .env.*
+
+# Python cache
+__pycache__/
