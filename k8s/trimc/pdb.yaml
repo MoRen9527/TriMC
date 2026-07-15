@@ -1,0 +1,11 @@
+﻿apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trimc
+  namespace: trimc
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: trimc
+

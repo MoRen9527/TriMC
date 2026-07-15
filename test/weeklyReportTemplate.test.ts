@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSqlWeeklyIssueReport } from '../src/weeklyReportTemplate.js';
+import { buildSqlWeeklyIssueReport } from '../src/observability/weeklyReportTemplate.js';
 
 const baseReport = {
   traceId: 'trc_demo',

@@ -34,6 +34,7 @@
 - **2026-07-15（CTO-005 Soul Loader）**：v0.2.0 编排层第二个落地组件。`src/soul-loader/` 提供 `contractToPrompt()` + `contractToContextSources()`——将 AgentContract 六要素（Identity/Responsibilities/Decision Rights/Collaborators/Instructions/Tools）转换为结构化 Markdown 系统提示词，写入 ContextSources 以注入 agentLoop pipeline。23 新测试 + 全量 154/154 PASS。
 - **2026-07-15（CTO-006 Memory Injector）**：v0.2.0 编排层第三个落地组件。`src/memory-injector/` 提供 `injectAll()` + `buildMemoryContext()` + `contractToSoulMemory()`——将四层记忆（soul/memory/colleagues/social）转换为 memdir/ Markdown 文件（YAML frontmatter + body），产出 `extraContext` 行注入 Context Builder pipeline。吸收 Claude Code memdir/ 约定。25 新测试 + 全量 179/179 PASS。
 - **2026-07-15（CTO-011 Tool Gater）**：v0.2.0 编排层第四/最后一个组件。`src/tool-gater/` 提供 `checkToolPermission()` + `createToolGater()` + `summarizeGater()`——将 tier-based 权限（permissions.ts）和 contract-driven risk 评估（PolicyGateService）合并为统一门禁 hook，注入 agentLoop 工具分发前检查。两层模型：tier 优先 → risk 评估（low→auto, medium→audit, high→block, critical→deny）。`AgentLoopOptions.toolSpecs` 可选，向后兼容。27 新测试 + 全量 206/206 PASS。**v0.2.0 编排层 4/4 完成** 🎉。
+- **2026-07-15（CTO-012 Pipeline Integration）**：v0.2.0 编排层端到端集成测试。`test/pipeline-integration/pipeline.test.ts` 验证 `assemblePipeline()`——将四组件（Soul Loader / Memory Injector / Context Builder / Tool Gater）从 AgentContract 到 AgentLoopOptions 的完整流水线组装。7 suites, 34 tests。全量 240/240 PASS, tsc clean。小柯验证模式。**v0.2.0 集成验证完成** ✅。
 
 ## Change Tracking Baseline
 

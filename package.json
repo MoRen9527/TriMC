@@ -15,7 +15,9 @@
     "test": "node --import tsx --test test/**/*.test.ts"
   },
   "dependencies": {
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "trimodel": "file:../TriModel",
+    "yaml": "^2.7.0"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

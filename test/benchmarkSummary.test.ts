@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildSqlBenchmarkSummary,
   buildSqlBenchmarkSummaryMarkdown
-} from '../src/benchmarkSummary.js';
+} from '../src/observability/benchmarkSummary.js';
 
 const baseReport = {
   generatedAt: '2026-03-01T00:00:00.000Z',

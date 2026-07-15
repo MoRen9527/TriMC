@@ -1,0 +1,35 @@
+# Git
+.git
+.gitignore
+
+# Dependencies
+node_modules
+
+# Build artifacts
+dist
+
+# Test files
+test
+**/*.test.ts
+
+# Docs (not needed at runtime)
+docs
+
+# CI/CD
+.github
+
+# Docker files
+docker
+.dockerignore
+
+# IDE
+.vscode
+.idea
+
+# Env
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db

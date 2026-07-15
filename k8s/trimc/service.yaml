@@ -1,0 +1,14 @@
+﻿apiVersion: v1
+kind: Service
+metadata:
+  name: trimc
+  namespace: trimc
+spec:
+  selector:
+    app: trimc
+  ports:
+    - port: 80
+      targetPort: 8710
+      protocol: TCP
+  type: ClusterIP
+

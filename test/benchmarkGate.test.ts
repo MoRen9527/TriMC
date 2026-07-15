@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateBenchmarkReport, resolveBenchmarkThresholds } from '../src/benchmarkGate.js';
+import { evaluateBenchmarkReport, resolveBenchmarkThresholds } from '../src/observability/benchmarkGate.js';
 
 function report(overrides = {}) {
   return {

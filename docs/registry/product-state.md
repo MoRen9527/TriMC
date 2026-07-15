@@ -11,10 +11,12 @@
 - 承接 `TriMetaverse` 当前服务域执行切片，向下游本地域节点和未来宿主适配层预留控制接口。
 - 对内提供最小 HTTP 控制面，包括健康检查和任务接单占位接口。
 - 对内维护 observability / replay 基线，用于吸收 `core-agent` 的相关能力，而不是把 `core-agent` 重新当作现役主控。
-- 以 `vendor/openclaw/` 作为 shadow 吸收参考基线之一，用于承接 Gateway 协议、节点执行语义与后续服务域演进。
-- 正在吸收 OpenClaw 的核心功能口径，包括心跳、cron / 定时任务和 agent harness 设计，用于支撑赛博岗位的常驻任务与定时任务。
-- 后续配合 `TriHost` 承接正式宿主落地配置，配合 `TriStaciss` 做多模型路由、成本控制、模型适用边界判断与官方 SDK 能力发挥。
-- 长期目标是吸收 OpenClaw 与 Claude Code 的 harness 设计，形成服务器端 agent 主控，统御龙虾 / Hermes / 其他 agents 的集群控制与调配。
+- 以 `vendor/openclaw/` 作为 shadow 吸收参考基线之一，用于承接 Gateway 协议、节点执行语义与后续服务域演进。2026-07-10 中央收口后已裁为薄参考层：社交通道归入 TriGateway，消息队列管理归入 TriMC。
+- 正在吸收 Claude Code 2.1.88 的 agent 循环、tool system、task system、cron/hooks 与 permission 设计，用于支撑赛博岗位的常驻任务与定时任务。**Claude Code 是 TriMC 的 agent infra 层，不是产品面。**
+- 后续配合 `TriHost` 承接正式宿主落地配置，配合 `TriStaciss` 做多模型路由、成本控制、模型适用边界判断与 Anthropic-compatible 端点（`POST /v1/messages`）调用。
+- 长期目标是吸收 Claude Code harness 设计并自建编排层（Soul Loader + Memory Injector + Tool Gater + Context Builder），形成服务器端 agent 主控，统御各赛博员工的集群控制与调配。
+- **产品基调约束（2026-07-10 中央收口）**：员工 = 角色 + 四层记忆 + Hermes 融合，不是 coding agent。产品面输出必须保持"公司员工味"，编排面驱动角色人格，infra 面只提供能力池。核心原则："员工是会写代码的 CPO，不是碰巧叫小乔的 coding agent"。
+- **本地演练场（2026-07-10 新增）**：Claude Code CLI 直接运行于 Windows，使用同一份 restored-src 源码。本地验证通过后发布至 TriMC 服务器，保证绝对 dev-prod parity。
 - 目前不能把 planner、context、tool orchestration、model-call 能力写成已落地现役产品面；仓内尚未看到对应目录和稳定入口。
 - 涉及具体项目代码仓库时，产品侧文档基线应按 `PROJECT.md`、`REQUIREMENTS.md`、产品版 `ROADMAP.md` 和产品版 `STATE.md` 维护；若缺失，应视为待补齐的产品真源缺口。
 
@@ -25,6 +27,8 @@
 - 已具备 `task-controller`、`node-bridge`、`policy-gate`、`observability`、`contracts`、`config` 等目录布局。
 - 已具备 observability mapper 与 timeline/replay 测试基线，`test/` 目录中已有两组 Node test。
 - 已具备 `sql/` 与 `vendor/openclaw/` 作为后续 shadow 吸收与数据库初始化配套面。
+- ✅ TriModel Phase 4 依赖就绪：`ChatResponse.usage` 编译期必选，`UsageAccumulator` 可跨 turn 聚合 token 用量。
+- ✅ **TokenUsage 接入已完成（2026-07-14，CTO 交付）**：`agentLoop()` 内部使用 `UsageAccumulator` 跨 turn 累计，所有 `loop_end` 路径（done/max_turns/error）均携带 `UsageSummary`，`runAgentLoop()` 返回 `UsageSummary`。下游消费端（SSE 端点、batch runner）通过 `loop_end` 事件直接获取聚合用量，无需修改。
 
 ## Bug And Gap State
 
@@ -34,6 +38,7 @@
 - 与 `TriLC` 的服务域 / 本地域协作链路虽在中央文档中已有方向，但仓内当前仍主要是接口和职责占位。
 - 与 `TriHost` 的正式宿主适配关系仍停留在规划口径，尚未见到现役适配代码。
 - 产品层仍缺少更稳定的 `PROJECT.md`、`REQUIREMENTS.md`、产品版 `ROADMAP.md`、产品版 `STATE.md`，导致长期目标与当前成熟度只能分散在 README、中央文档和 registry 中表达。
+- ~~TokenUsage 消费缺口~~ ✅ **已完成（2026-07-14，CTO 交付，CPO 验收）**：agent loop 已接入 `UsageAccumulator`，跨 turn 累计，全部 `loop_end` 路径携带 `UsageSummary`。注：原始票中提及的 `weeklyReportTemplate.ts` / `benchmarkSummary.ts` 是 SQL 门禁模板，非 agent loop token 消费端；实际消费在 agent loop 事件边界（SSE/JSON 端点），无需修改 SQL observability 文件。
 
 ## Cross-Module Dependencies
 

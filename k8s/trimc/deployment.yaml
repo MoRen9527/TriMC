@@ -1,0 +1,41 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trimc
+  namespace: trimc
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: trimc
+  template:
+    metadata:
+      labels:
+        app: trimc
+    spec:
+      containers:
+        - name: trimc
+          image: trimc:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8710
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8710
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8710
+            initialDelaySeconds: 15
+            periodSeconds: 20
+

@@ -1,0 +1,69 @@
+# TriMC 最小部署拓扑 — docker-compose
+# CARRY-004 | 最后更新：2026-07-14
+#
+# 启动前准备：
+#   1. 复制 .env.example 为 .env 并填入 DEEPSEEK_API_KEY
+#   2. 从父目录构建镜像：
+#      docker build -f TriMC/docker/Dockerfile -t trimc:dev ../..
+#   3. docker-compose -f TriMC/docker/docker-compose.yml up -d
+#
+# 验证：
+#   curl http://localhost:8710/healthz
+
+services:
+  trimc:
+    image: trimc:dev
+    container_name: trimc-server
+    ports:
+      - "${TRIMC_PORT:-8710}:${TRIMC_PORT:-8710}"
+    environment:
+      # TriMC 层
+      - TRIMC_PORT=${TRIMC_PORT:-8710}
+      - TRISTACISS_BASE_URL=${TRISTACISS_BASE_URL:-http://127.0.0.1:8008}
+      - OPENCLOW_GATEWAY_URL=${OPENCLOW_GATEWAY_URL:-ws://127.0.0.1:8822}
+      - VSCODIUM_GLUE_BASE_URL=${VSCODIUM_GLUE_BASE_URL:-http://127.0.0.1:8730}
+      # TriModel 层
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      - TRIMODEL_TRIMETAVERSE_API_KEY=${TRIMODEL_TRIMETAVERSE_API_KEY:-tmv-sk-dev-default}
+      - TRIMODEL_TRISTACISS_BASE_URL=${TRIMODEL_TRISTACISS_BASE_URL:-http://127.0.0.1:8000/v1}
+      - TRIMODEL_PRIMARY_PROVIDER=${TRIMODEL_PRIMARY_PROVIDER:-deepseek}
+      - TRIMODEL_DEFAULT_MODEL=${TRIMODEL_DEFAULT_MODEL:-deepseek-chat}
+      - TRIMODEL_FALLBACK_MODEL=${TRIMODEL_FALLBACK_MODEL:-deepseek-chat}
+      - TRIMODEL_REQUEST_TIMEOUT_MS=${TRIMODEL_REQUEST_TIMEOUT_MS:-60000}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8710/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - trimc-net
+
+  # PostgreSQL（TaskController 持久化）
+  postgres:
+    image: postgres:16-alpine
+    container_name: trimc-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-trimc}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-trimc-dev}
+      - POSTGRES_DB=${POSTGRES_DB:-trimc}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trimc} -d ${POSTGRES_DB:-trimc}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - trimc-net
+
+volumes:
+  pgdata:
+
+networks:
+  trimc-net:
+    driver: bridge
