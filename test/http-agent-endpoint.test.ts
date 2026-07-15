@@ -79,6 +79,58 @@ function makeMockResponse(model: string, content: string, hasTools: boolean): Re
   );
 }
 
+/** Build an SSE streaming Response from the same mock content.
+ *  Converts non-stream JSON format → SSE data chunks that DeepSeekProvider.stream() can parse. */
+function makeMockStreamResponse(model: string, content: string, hasTools: boolean): Response {
+  const chunks: string[] = [];
+  const toolPrefix = '[Tool-aware] ';
+  const fullContent = hasTools ? `${toolPrefix}${content}` : content;
+  // Split content into 2-3 chunks to simulate real streaming
+  const step = Math.ceil(fullContent.length / 3) || 1;
+  for (let i = 0; i < fullContent.length; i += step) {
+    const delta = fullContent.slice(i, i + step);
+    chunks.push(
+      JSON.stringify({ choices: [{ delta: { content: delta }, index: 0 }] }),
+    );
+  }
+  // Final chunk with finish_reason + usage
+  chunks.push(
+    JSON.stringify({
+      choices: [{ delta: {}, index: 0, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    }),
+  );
+
+  const sse = chunks.map((c) => `data: ${c}\n\n`).join('') + 'data: [DONE]\n\n';
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(sse));
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
+
+/** Create a mock fetch that handles both streaming and non-streaming. */
+function makeFetchMock(content: string, toolContent?: string, options?: { shouldStream?: boolean }) {
+  const shouldStream = options?.shouldStream ?? true; // default stream for new loop
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.includes('127.0.0.1')) return originalFetch(input, init);
+    const body = init?.body ? JSON.parse(init.body as string) : {};
+    const hasTools = !!body.tools?.length;
+    if (body.stream === true || shouldStream) {
+      return makeMockStreamResponse(body.model ?? 'deepseek-v4-pro', hasTools ? (toolContent ?? content) : content, hasTools);
+    }
+    return makeMockResponse(body.model ?? 'deepseek-v4-pro', hasTools ? (toolContent ?? content) : content, hasTools);
+  };
+}
+
 // ── Suite 1: JSON Mode — Backward Compatibility (no contract) ──
 
 describe('POST /internal/v1/agent [JSON, legacy]', () => {
@@ -87,12 +139,7 @@ describe('POST /internal/v1/agent [JSON, legacy]', () => {
 
   before(async () => {
     process.env.DEEPSEEK_API_KEY = 'sk-test-mock-key';
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input.toString();
-      if (url.includes('127.0.0.1')) return originalFetch(input, init);
-      const body = init?.body ? JSON.parse(init.body as string) : {};
-      return makeMockResponse(body.model ?? 'deepseek-v4-pro', 'Legacy mode response', !!body.tools?.length);
-    };
+    globalThis.fetch = makeFetchMock('Legacy mode response');
     const { createTriMCApp } = await import('../src/server/app.js');
     app = createTriMCApp({ port: 0 } as never);
     await app.start();
@@ -175,13 +222,7 @@ describe('POST /internal/v1/agent [JSON, contract pipeline]', () => {
 
   before(async () => {
     process.env.DEEPSEEK_API_KEY = 'sk-test-mock-key';
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input.toString();
-      if (url.includes('127.0.0.1')) return originalFetch(input, init);
-      const body = init?.body ? JSON.parse(init.body as string) : {};
-      const hasTools = !!body.tools?.length;
-      return makeMockResponse(body.model ?? 'deepseek-v4-pro', hasTools ? 'I see contract tools' : 'Plain response', hasTools);
-    };
+    globalThis.fetch = makeFetchMock('Plain response', 'I see contract tools');
     const { createTriMCApp } = await import('../src/server/app.js');
     app = createTriMCApp({ port: 0 } as never);
     await app.start();
@@ -287,12 +328,7 @@ describe('POST /internal/v1/agent [SSE, legacy]', () => {
 
   before(async () => {
     process.env.DEEPSEEK_API_KEY = 'sk-test-mock-key';
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input.toString();
-      if (url.includes('127.0.0.1')) return originalFetch(input, init);
-      const body = init?.body ? JSON.parse(init.body as string) : {};
-      return makeMockResponse(body.model ?? 'deepseek-v4-pro', 'SSE legacy ok', !!body.tools?.length);
-    };
+    globalThis.fetch = makeFetchMock('SSE legacy ok');
     const { createTriMCApp } = await import('../src/server/app.js');
     app = createTriMCApp({ port: 0 } as never);
     await app.start();
@@ -359,13 +395,7 @@ describe('POST /internal/v1/agent [SSE, contract pipeline]', () => {
 
   before(async () => {
     process.env.DEEPSEEK_API_KEY = 'sk-test-mock-key';
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input.toString();
-      if (url.includes('127.0.0.1')) return originalFetch(input, init);
-      const body = init?.body ? JSON.parse(init.body as string) : {};
-      const hasTools = !!body.tools?.length;
-      return makeMockResponse(body.model ?? 'deepseek-v4-pro', hasTools ? 'Contract SSE stream ok' : 'Legacy SSE stream ok', hasTools);
-    };
+    globalThis.fetch = makeFetchMock('Legacy SSE stream ok', 'Contract SSE stream ok');
     const { createTriMCApp } = await import('../src/server/app.js');
     app = createTriMCApp({ port: 0 } as never);
     await app.start();
@@ -442,11 +472,7 @@ describe('POST /internal/v1/agent [cross-cutting]', () => {
 
   before(async () => {
     process.env.DEEPSEEK_API_KEY = 'sk-test-mock-key';
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input.toString();
-      if (url.includes('127.0.0.1')) return originalFetch(input, init);
-      return makeMockResponse('deepseek-v4-pro', 'Cross-cutting mock', false);
-    };
+    globalThis.fetch = makeFetchMock('Cross-cutting mock');
     const { createTriMCApp } = await import('../src/server/app.js');
     app = createTriMCApp({ port: 0 } as never);
     await app.start();

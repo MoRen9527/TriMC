@@ -41,6 +41,7 @@
 - **2026-07-15（CTO-014 HTTP Agent Endpoint Tests）**：对 `POST /internal/v1/agent` 进行 HTTP 层集成测试。`test/http-agent-endpoint.test.ts`（5 suites, 17 tests）覆盖：contract pipeline JSON/SSE、legacy backward compat JSON/SSE、systemPrompt override、tier 参数、malformed contract 错误路径、concurrent requests、method 404。全量 257/257 PASS, tsc clean。小全+小柯验证模式。**v0.2.0 HTTP 层验证完成** ✅。
 - **2026-07-15（CTO-015 E2E Real Model Smoke Test）**：`test/e2e/real-model-agent.test.ts`（4 suites）——真 DeepSeek API 端到端烟雾测试，覆盖 contract-driven Q&A（JSON/SSE）、tool calling（read_file 真文件→真模型响应）、legacy no-contract 模式、multi-turn 对话。**4 suites / 5 tests PASS with DeepSeek V3, tsc clean** ✅。
 - **2026-07-15（CTO-003 P0 Prompt Cache Infrastructure）**：吸收 Claude Code Phase 2 Tier 1（~200 行）——创建 `src/prompt-cache/`（`cache-control.ts` + `index.ts`），提供 SHA256 hash 追踪 + change detection + cache hit 估算（>=2000 tokens 绝对阈值 OR >=5% 相对阈值）+ `CacheMetrics` 可观测性事件。集成到 `loop.ts`（CacheState 初始化/每轮更新/metrics yield）。预埋 `getCacheControlConfig()` 为未来 Anthropic provider 做准备。26 测试 + 全量 288/288 PASS, tsc clean。**CTO-003 P0 完成** ✅。
+- **2026-07-15（CTO-003 P1T1 Streaming）**：吸收 Claude Code Phase 1 Tier 1 最后一块——`agentLoop()` 从 `modelClient.chat()` 切换到 `modelClient.stream()`，新增 `streamChat()` helper（异步生成器，yield `content_delta` 事件 + 增量 tool_calls 合并 + 返回累积 `ChatResponse`），三处调用点全部替换（Primary / Tier 1 Retry / Tier 2 Fallback），三层错误级联结构保持完整。`AgentEvent` union 新增 `content_delta` 类型。`SSE` 消费端（`app.ts`）零改动兼容新事件。`test/http-agent-endpoint.test.ts` mock 适配 SSE streaming 格式。全量 288/288 PASS, tsc clean。**CTO-003 P1 Phase 1 Tier 1 完成** ✅。
 
 ## Change Tracking Baseline
 
@@ -49,7 +50,7 @@
 - 若 `node-bridge` 开始接入真实 Gateway / node registry / WebSocket 生命周期，也应单独记录从“占位桥接”到“现役桥接”的切换点。
 - 若 future planner/context/tool orchestration/model-call 能力真正落地，应以新增目录、入口文件和测试为准，再更新登记层，不可提前写成已具备。
 - 涉及具体项目代码仓库时，技术侧文档基线应按 `docs/engineering/DESIGN.md`、技术版 `ROADMAP.md`、技术版 `STATE.md` 以及 `docs/execution/<workstream>/<phase>/PLAN.md`、`SUMMARY.md`、`VERIFICATION.md` 维护；若缺失，应视为待补齐的技术或执行层缺口。
-- Claude Code 吸收：分析文档位于 `docs/engineering/claude-code-absorption/`，按 Phase 1-4 分阶段产出（全部通过小全+小柯 25/25 验证）。**CEO 已批准吸收优先级**：P0=Phase 2 缓存，P1=Phase 1 Loop + Phase 4 权限，P2=Phase 3 Sub-Agent，P3=各 Tier 2-4。共识文档：`docs/registry/claude-code-absorption-consensus.md`。当前代码吸收率：Phase 1 ~10-15%、Phase 2 Tier 1 (P0) 100% ✅、Phase 3 0%、Phase 4 ~30%。
+- Claude Code 吸收：分析文档位于 `docs/engineering/claude-code-absorption/`，按 Phase 1-4 分阶段产出（全部通过小全+小柯 25/25 验证）。**CEO 已批准吸收优先级**：P0=Phase 2 缓存，P1=Phase 1 Loop + Phase 4 权限，P2=Phase 3 Sub-Agent，P3=各 Tier 2-4。共识文档：`docs/registry/claude-code-absorption-consensus.md`。当前代码吸收率：Phase 1 Tier 1 (P1) 100% ✅、Phase 2 Tier 1 (P0) 100% ✅、Phase 3 0%、Phase 4 Tier 1 0%。
 
 ## Git Health
 

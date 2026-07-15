@@ -65,7 +65,7 @@ export function computeToolsHash(tools?: ToolDefinition[]): string | null {
       const sorted: Record<string, unknown> = {};
       const keys = Object.keys(t).sort();
       for (const key of keys) {
-        sorted[key] = (t as Record<string, unknown>)[key];
+        sorted[key] = (t as unknown as Record<string, unknown>)[key];
       }
       return sorted;
     }),

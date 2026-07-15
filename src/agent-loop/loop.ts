@@ -2,8 +2,9 @@
 // Absorbed from Claude Code 2.1.88 vendor pattern (query.ts queryLoop).
 // Uses TriModel (DeepSeek provider) instead of Anthropic SDK.
 // Phase 1: while-true loop with tool dispatching via built-in registry.
+// CTO-003 P1T1: Spread-replace state + three-tier error recovery cascade + abort + streaming.
 
-import { createModelClient, UsageAccumulator, type Message, type ToolCall, type UsageSummary } from 'trimodel';
+import { createModelClient, UsageAccumulator, type Message, type ToolCall, type ChatResponse, type StreamEvent, type ChatOptions, type UsageSummary } from 'trimodel';
 import { getToolDefinitions, executeTool } from './tools.js';
 import { getTierSummary, type AgentTier } from './permissions.js';
 import { buildContext, mergeContextWithPrompt, type ContextSources } from '../context-builder/context-builder.js';
@@ -22,6 +23,8 @@ import {
 export interface AgentLoopOptions {
   /** Model name to use (default: 'deepseek-v4-pro') */
   model?: string;
+  /** Fallback model for Tier 2 error recovery (default: 'deepseek-chat') */
+  fallbackModel?: string;
   /** Maximum conversation turns before forced exit */
   maxTurns?: number;
   /** System prompt */
@@ -50,33 +53,124 @@ export interface AgentLoopOptions {
    * When omitted, only tier check applies (backward compatible).
    */
   toolSpecs?: ToolSpec[];
+  /**
+   * CTO-003 P1: AbortSignal for cancelling in-flight requests.
+   * When the signal is aborted, the loop terminates gracefully.
+   */
+  signal?: AbortSignal;
 }
 
 // ── Streaming Event Types ──
 
 export type AgentEvent =
-  | { type: 'loop_start'; model: string; turn: number; tier?: string; availableTools?: number; totalTools?: number }
-  | { type: 'request_start'; turn: number }
+  | { type: 'loop_start'; model: string; fallbackModel?: string; turn: number; tier?: string; availableTools?: number; totalTools?: number }
+  | { type: 'request_start'; turn: number; model: string }
+  | { type: 'content_delta'; turn: number; delta: string }
   | { type: 'assistant_message'; turn: number; content: string | null; tool_calls?: ToolCall[] }
   | { type: 'tool_call'; turn: number; id: string; name: string; arguments: string }
   | { type: 'tool_result'; turn: number; tool_call_id: string; content: string; is_error?: boolean }
   | { type: 'tool_blocked'; turn: number; tool_name: string; reason: string }
-  | { type: 'loop_end'; reason: 'done' | 'max_turns' | 'error' | 'tool_calls_finish'; finish_reason?: string; usageSummary?: UsageSummary }
+  | { type: 'loop_end'; reason: 'done' | 'max_turns' | 'error' | 'tool_calls_finish' | 'aborted'; finish_reason?: string; usageSummary?: UsageSummary }
   | { type: 'cache_metrics'; metrics: CacheMetrics }
+  | { type: 'recovery'; turn: number; tier: 1 | 2; message: string }
   | { type: 'error'; message: string };
 
-// ── Agent Loop State (mirrors Claude Code State pattern) ──
+// ── Agent Loop State (spread-replace pattern per Claude Code State design) ──
 
 interface LoopState {
   messages: Message[];
   turnCount: number;
   maxTurns: number;
+  /** CTO-003 P1: Transition reason for this cycle (Tier 2+ continue sites) */
+  transition?: { reason: string };
 }
 
-// ── Agent Loop Iterator ──
+// ── Error Classification (CTO-003 P1) ──
+// Maps errors to recovery tiers for the three-tier cascade.
+
+function classifyError(err: unknown): 'transient' | 'context_overflow' | 'auth' | 'permanent' {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (/timeout|abort|econnreset|econnrefused|5\d\d|rate.?limit|overloaded|network/i.test(msg)) return 'transient';
+  if (/413|context.?length|prompt.?too.?long|token.?limit|maximum.*context/i.test(msg)) return 'context_overflow';
+  if (/401|403|unauthorized|invalid.*key|auth/i.test(msg)) return 'auth';
+  return 'permanent';
+}
+
+// ── Fallback Model Map (CTO-003 P1) ──
+// Simple model downgrade path for Tier 2 recovery.
+// Default: v4-pro → chat, reasoner → chat, flash → v4-pro.
+
+const FALLBACK_MAP: Record<string, string> = {
+  'deepseek-v4-pro': 'deepseek-chat',
+  'deepseek-reasoner': 'deepseek-chat',
+  'deepseek-v4-flash': 'deepseek-v4-pro',
+};
+
+function getFallbackModel(model: string): string | undefined {
+  return FALLBACK_MAP[model] ?? 'deepseek-chat';
+}
+
+// ── Streaming Helper (CTO-003 P1T1) ──
+// Wraps modelClient.stream() → yields content_delta events → returns accumulated ChatResponse.
+
+async function* streamChat(
+  modelClient: ReturnType<typeof createModelClient>,
+  model: string,
+  messages: Message[],
+  opts: ChatOptions,
+  turn: number,
+): AsyncGenerator<AgentEvent, ChatResponse> {
+  let content = '';
+  const toolCallMap = new Map<number, { id: string; name: string; arguments: string }>();
+  let finishReason: ChatResponse['finish_reason'] = null;
+  let usage: ChatResponse['usage'] | undefined;
+
+  for await (const event of modelClient.stream(model, messages, opts)) {
+    // Accumulate text deltas
+    if (event.delta) {
+      content += event.delta;
+      yield { type: 'content_delta', turn, delta: event.delta };
+    }
+
+    // Accumulate tool call fragments (incremental, merge by index)
+    if (event.tool_calls) {
+      for (const tc of event.tool_calls) {
+        const existing = toolCallMap.get(tc.index) ?? { id: '', name: '', arguments: '' };
+        if (tc.id) existing.id = tc.id;
+        if (tc.function?.name) existing.name += tc.function.name;
+        if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+        toolCallMap.set(tc.index, existing);
+      }
+    }
+
+    if (event.finish_reason !== undefined) finishReason = event.finish_reason;
+    if (event.usage) usage = event.usage;
+  }
+
+  // Build final tool_calls array from accumulated fragments
+  const tool_calls: ToolCall[] = Array.from(toolCallMap.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([, tc]) => ({
+      id: tc.id,
+      type: 'function' as const,
+      function: { name: tc.name, arguments: tc.arguments },
+    }));
+
+  return {
+    id: `stream-${turn}`,
+    model,
+    content: content || null,
+    tool_calls: tool_calls.length > 0 ? tool_calls : undefined,
+    finish_reason: finishReason,
+    usage: usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+  };
+}
+
+// ── Agent Loop Iterator (CTO-003 P1T1 refactored) ──
 
 export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<AgentEvent> {
   const model = options.model ?? 'deepseek-v4-pro';
+  const fallbackModel = options.fallbackModel ?? getFallbackModel(model);
   const maxTurns = options.maxTurns ?? 25;
   const tier = options.tier ?? 'main';
   const modelClient = createModelClient();
@@ -99,7 +193,8 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
     seedMessages.push(...options.messages);
   }
 
-  const state: LoopState = {
+  // CTO-003 P1: Spread-replace state initialization
+  let state: LoopState = {
     messages: seedMessages,
     turnCount: 1,
     maxTurns,
@@ -120,40 +215,122 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
   yield {
     type: 'loop_start',
     model,
+    fallbackModel,
     turn: state.turnCount,
     tier,
     availableTools: tierToolCount,
     totalTools: totalToolCount,
   } as AgentEvent;
 
+  // CTO-003 P1: Track current model (may change on fallback)
+  let currentModel = model;
+  // Track whether we've already attempted fallback this turn (prevent fallback loop)
+  let hasAttemptedFallback = false;
+
   while (true) {
+    // ── Abort check (CTO-003 P1) ──
+    if (options.signal?.aborted) {
+      yield { type: 'loop_end', reason: 'aborted', usageSummary: accumulator.summary() };
+      return;
+    }
+
     // ── Max turns guard ──
     if (state.turnCount > maxTurns) {
       yield { type: 'loop_end', reason: 'max_turns', usageSummary: accumulator.summary() };
       return;
     }
 
-    // ── Call model ──
-    yield { type: 'request_start', turn: state.turnCount };
+    // ── Call model with three-tier error recovery cascade ──
+    yield { type: 'request_start', turn: state.turnCount, model: currentModel };
+
+    // CTO-003 P0: Update cache state before API call (detect system/tool changes)
+    updateCacheState(cacheState, state.messages, tools, state.turnCount);
 
     let response;
+    let recoveryTier: 1 | 2 | 0 = 0; // 0 = no recovery needed
+    hasAttemptedFallback = false;
+
     try {
-      // CTO-003 P0: Update cache state before API call (detect system/tool changes)
-      updateCacheState(cacheState, state.messages, tools, state.turnCount);
-
-      response = await modelClient.chat(model, state.messages, { tools: tools.length > 0 ? tools : undefined });
-      accumulator.add(response);
-
-      // CTO-003 P0: Build and yield cache metrics for this turn
-      if (response.usage) {
-        const metrics = buildCacheMetrics(cacheState, response.usage.prompt_tokens, state.turnCount);
-        yield { type: 'cache_metrics', metrics };
-      }
+      // Primary attempt (streaming)
+      response = yield* streamChat(
+        modelClient,
+        currentModel,
+        state.messages,
+        { tools: tools.length > 0 ? tools : undefined },
+        state.turnCount,
+      );
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      yield { type: 'error', message: msg };
-      yield { type: 'loop_end', reason: 'error', usageSummary: accumulator.summary() };
-      return;
+      const category = classifyError(err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+
+      // Unrecoverable: auth errors, context overflow — surface immediately
+      if (category === 'auth' || category === 'context_overflow') {
+        yield { type: 'error', message: errMsg };
+        yield { type: 'loop_end', reason: 'error', usageSummary: accumulator.summary() };
+        return;
+      }
+
+      // ── Tier 1: Retry same model (model hiccup) ──
+      if (category === 'transient') {
+        recoveryTier = 1;
+        yield { type: 'recovery', turn: state.turnCount, tier: 1, message: `Model hiccup on ${currentModel}, retrying...` };
+        try {
+          response = yield* streamChat(
+            modelClient,
+            currentModel,
+            state.messages,
+            { tools: tools.length > 0 ? tools : undefined },
+            state.turnCount,
+          );
+        } catch (retryErr) {
+          // Tier 1 retry also failed — fall through to Tier 2
+          const retryCategory = classifyError(retryErr);
+          if (retryCategory === 'auth' || retryCategory === 'context_overflow') {
+            const m = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            yield { type: 'error', message: m };
+            yield { type: 'loop_end', reason: 'error', usageSummary: accumulator.summary() };
+            return;
+          }
+          // Fall through to Tier 2 below
+        }
+      }
+
+      // ── Tier 2: Switch to fallback model ──
+      if (!response && !hasAttemptedFallback && fallbackModel && fallbackModel !== currentModel) {
+        recoveryTier = 2;
+        hasAttemptedFallback = true;
+        yield { type: 'recovery', turn: state.turnCount, tier: 2, message: `Switching from ${currentModel} to ${fallbackModel}...` };
+        try {
+          currentModel = fallbackModel;
+          response = yield* streamChat(
+            modelClient,
+            currentModel,
+            state.messages,
+            { tools: tools.length > 0 ? tools : undefined },
+            state.turnCount,
+          );
+        } catch (fallbackErr) {
+          const m = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+          yield { type: 'error', message: m };
+          yield { type: 'loop_end', reason: 'error', usageSummary: accumulator.summary() };
+          return;
+        }
+      }
+
+      // ── Tier 3: All recovery exhausted — surface and terminate ──
+      if (!response) {
+        yield { type: 'error', message: errMsg };
+        yield { type: 'loop_end', reason: 'error', usageSummary: accumulator.summary() };
+        return;
+      }
+    }
+
+    accumulator.add(response);
+
+    // CTO-003 P0: Build and yield cache metrics for this turn
+    if (response.usage) {
+      const metrics = buildCacheMetrics(cacheState, response.usage.prompt_tokens, state.turnCount);
+      yield { type: 'cache_metrics', metrics };
     }
 
     // ── Emit assistant response ──
@@ -164,7 +341,7 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
       tool_calls: response.tool_calls,
     };
 
-    // Push assistant message to history
+    // CTO-003 P1: Spread-replace — build assistant message, push to history
     const assistantMsg: Message = {
       role: 'assistant',
       content: response.content,
@@ -172,7 +349,10 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
     if (response.tool_calls && response.tool_calls.length > 0) {
       assistantMsg.tool_calls = response.tool_calls;
     }
-    state.messages.push(assistantMsg);
+    state = {
+      ...state,
+      messages: [...state.messages, assistantMsg],
+    };
 
     // ── Check for tool calls ──
     if (!response.tool_calls || response.tool_calls.length === 0) {
@@ -235,9 +415,13 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
       });
     }
 
-    // Push tool results to history
-    state.messages.push(...toolResults);
-    state.turnCount++;
+    // CTO-003 P1: Spread-replace — push tool results + increment turn
+    state = {
+      ...state,
+      messages: [...state.messages, ...toolResults],
+      turnCount: state.turnCount + 1,
+      transition: recoveryTier > 0 ? { reason: recoveryTier === 1 ? 'model_hiccup' : 'model_swap' } : { reason: 'next_turn' },
+    };
   }
 }
 
