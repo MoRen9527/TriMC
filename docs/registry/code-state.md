@@ -38,7 +38,7 @@
 - **2026-07-15（CTO-012 Pipeline Integration）**：v0.2.0 编排层端到端集成测试。`test/pipeline-integration/pipeline.test.ts` 验证 `assemblePipeline()`——将四组件（Soul Loader / Memory Injector / Context Builder / Tool Gater）从 AgentContract 到 AgentLoopOptions 的完整流水线组装。7 suites, 34 tests。全量 240/240 PASS, tsc clean。小柯验证模式。**v0.2.0 集成验证完成** ✅。
 - **2026-07-15（CTO-013 Server Assembly）**：将 v0.2.0 编排层四组件装配到 `POST /internal/v1/agent` HTTP 端点。新增 `src/pipeline/assemble.ts`（生产级流水线装配器，`assemblePipelineOptions()`），更新 `app.ts` 支持 `contract: AgentContract` 字段触发完整流水线（Soul Loader → Memory Injector → Context Builder → Tool Gater → AgentLoopOptions）。向后兼容（无 contract → 原生 agentLoop）。Memory Injector 可选（`TRIMC_MEMDIR` 环境变量控制）。`env.ts` 新增 `cwd` 和 `memdirPath` 字段。全量 240/240 PASS, tsc clean。**v0.2.0 生产装配完成** ✅。
 - **2026-07-15（CTO-014 HTTP Agent Endpoint Tests）**：对 `POST /internal/v1/agent` 进行 HTTP 层集成测试。`test/http-agent-endpoint.test.ts`（5 suites, 17 tests）覆盖：contract pipeline JSON/SSE、legacy backward compat JSON/SSE、systemPrompt override、tier 参数、malformed contract 错误路径、concurrent requests、method 404。全量 257/257 PASS, tsc clean。小全+小柯验证模式。**v0.2.0 HTTP 层验证完成** ✅。
-- **2026-07-15（CTO-015 E2E Real Model Smoke Test）**：`test/e2e/real-model-agent.test.ts`（4 suites）——真 DeepSeek API 端到端烟雾测试，覆盖 contract-driven Q&A（JSON/SSE）、tool calling（read_file 真文件→真模型响应）、legacy no-contract 模式、multi-turn 对话。无 `DEEPSEEK_API_KEY` 时所有 suite 优雅 skip。需要 API key 方可执行：`npm run test:e2e -- --test-timeout=120000`。代码已就绪，待 API key 注入后运行。**待运行验证** ⏳。
+- **2026-07-15（CTO-015 E2E Real Model Smoke Test）**：`test/e2e/real-model-agent.test.ts`（4 suites）——真 DeepSeek API 端到端烟雾测试，覆盖 contract-driven Q&A（JSON/SSE）、tool calling（read_file 真文件→真模型响应）、legacy no-contract 模式、multi-turn 对话。**4 suites / 5 tests PASS with DeepSeek V3, tsc clean** ✅。
 
 ## Change Tracking Baseline
 
@@ -47,7 +47,7 @@
 - 若 `node-bridge` 开始接入真实 Gateway / node registry / WebSocket 生命周期，也应单独记录从“占位桥接”到“现役桥接”的切换点。
 - 若 future planner/context/tool orchestration/model-call 能力真正落地，应以新增目录、入口文件和测试为准，再更新登记层，不可提前写成已具备。
 - 涉及具体项目代码仓库时，技术侧文档基线应按 `docs/engineering/DESIGN.md`、技术版 `ROADMAP.md`、技术版 `STATE.md` 以及 `docs/execution/<workstream>/<phase>/PLAN.md`、`SUMMARY.md`、`VERIFICATION.md` 维护；若缺失，应视为待补齐的技术或执行层缺口。
-- Claude Code 吸收分析文档位于 `docs/engineering/claude-code-absorption/`，按 Phase 1-4 分阶段产出，当前 Phase 1（核心 Loop）已完成。
+- Claude Code 吸收：分析文档位于 `docs/engineering/claude-code-absorption/`，按 Phase 1-4 分阶段产出（全部通过小全+小柯 25/25 验证）。**CEO 已批准吸收优先级**：P0=Phase 2 缓存，P1=Phase 1 Loop + Phase 4 权限，P2=Phase 3 Sub-Agent，P3=各 Tier 2-4。共识文档：`docs/registry/claude-code-absorption-consensus.md`。当前代码吸收率：Phase 1 ~10-15%、Phase 2 0%、Phase 3 0%、Phase 4 ~30%。
 
 ## Git Health
 
