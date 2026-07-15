@@ -11,7 +11,7 @@
 - `src/policy-gate/`：已建目录，说明风险门禁已进入结构预留层，但本轮未见对外主入口装配。
 - `src/observability/`：当前最成熟的代码面，包含 mapper、contract samples、timeline/replay API、runtime、Postgres client 与 SQL store。
 - `src/contracts/`、`src/config/`、`src/types/`：协议、配置和类型支撑层。
-- `test/`：当前已有 `observabilityMapper.test.ts` 与 `timelineReplayApi.test.ts` 两组 Node test，覆盖 observability/replay 基线。
+- `test/`：当前已有 `observabilityMapper.test.ts` 与 `timelineReplayApi.test.ts` 两组 Node test，覆盖 observability/replay 基线。`test/e2e/` 含真模型 API 端到端测试（CTO-015，需 DEEPSEEK_API_KEY）。
 - `sql/`：数据库初始化脚本，当前与 observability 相关落位最直接。
 - `vendor/openclaw/`：已裁为薄参考层（2026-07-10 中央收口），社交通道归入 TriGateway，消息队列归入 TriMC，不再作为 agent runtime 参考主线。
 - `vendor/claude-code/`：Claude Code 2.1.88 restored-src 复制的吸收基线，作为 TriMC agent 循环 infra 层。同源代码同时驱动本地 Claude Code CLI 演练场与 TriMC 服务器，保证 dev-prod parity。Phase 1 核心 Loop 吸收分析已完成（`docs/engineering/claude-code-absorption/phase-1-core-loop.md`）。
@@ -38,6 +38,7 @@
 - **2026-07-15（CTO-012 Pipeline Integration）**：v0.2.0 编排层端到端集成测试。`test/pipeline-integration/pipeline.test.ts` 验证 `assemblePipeline()`——将四组件（Soul Loader / Memory Injector / Context Builder / Tool Gater）从 AgentContract 到 AgentLoopOptions 的完整流水线组装。7 suites, 34 tests。全量 240/240 PASS, tsc clean。小柯验证模式。**v0.2.0 集成验证完成** ✅。
 - **2026-07-15（CTO-013 Server Assembly）**：将 v0.2.0 编排层四组件装配到 `POST /internal/v1/agent` HTTP 端点。新增 `src/pipeline/assemble.ts`（生产级流水线装配器，`assemblePipelineOptions()`），更新 `app.ts` 支持 `contract: AgentContract` 字段触发完整流水线（Soul Loader → Memory Injector → Context Builder → Tool Gater → AgentLoopOptions）。向后兼容（无 contract → 原生 agentLoop）。Memory Injector 可选（`TRIMC_MEMDIR` 环境变量控制）。`env.ts` 新增 `cwd` 和 `memdirPath` 字段。全量 240/240 PASS, tsc clean。**v0.2.0 生产装配完成** ✅。
 - **2026-07-15（CTO-014 HTTP Agent Endpoint Tests）**：对 `POST /internal/v1/agent` 进行 HTTP 层集成测试。`test/http-agent-endpoint.test.ts`（5 suites, 17 tests）覆盖：contract pipeline JSON/SSE、legacy backward compat JSON/SSE、systemPrompt override、tier 参数、malformed contract 错误路径、concurrent requests、method 404。全量 257/257 PASS, tsc clean。小全+小柯验证模式。**v0.2.0 HTTP 层验证完成** ✅。
+- **2026-07-15（CTO-015 E2E Real Model Smoke Test）**：`test/e2e/real-model-agent.test.ts`（4 suites）——真 DeepSeek API 端到端烟雾测试，覆盖 contract-driven Q&A（JSON/SSE）、tool calling（read_file 真文件→真模型响应）、legacy no-contract 模式、multi-turn 对话。无 `DEEPSEEK_API_KEY` 时所有 suite 优雅 skip。需要 API key 方可执行：`npm run test:e2e -- --test-timeout=120000`。代码已就绪，待 API key 注入后运行。**待运行验证** ⏳。
 
 ## Change Tracking Baseline
 

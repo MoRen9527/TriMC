@@ -1,0 +1,2 @@
+Hello from TriMetaverse E2E test fixture!
+This file is used to verify that the agent can read files via tool calls.
