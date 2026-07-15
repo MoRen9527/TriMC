@@ -11,10 +11,12 @@
 
 | Phase | 分析文档 | 分析质量 | TriMC 当前吸收率 | 代码落地 |
 |-------|---------|---------|-----------------|---------|
-| 1 核心 Loop | `phase-1-core-loop-v2.md` | 25/25 PASS | **10-15%** | `loop.ts` 181行，基础 while-true |
-| 2 Prompt 缓存 | `phase-2-prompt-cache-v2.md` | 25/25 PASS | **0%** | 无任何缓存基础设施 |
+| 1 核心 Loop | `phase-1-core-loop-v2.md` | 25/25 PASS | **100% Tier 1** ✅ | `loop.ts` ~480行，streaming + 三级错误级联 + spread-replace state + abort |
+| 2 Prompt 缓存 | `phase-2-prompt-cache-v2.md` | 25/25 PASS | **100% Tier 1** ✅ | `prompt-cache/` — SHA256 hash + change detection + cache hit 估算 |
 | 3 Sub-Agent 树 | `phase-3-subagent-tree-v2.md` | 25/25 PASS | **0%** | CTO-009 仅做了 tier 限制 |
 | 4 工具权限 | `phase-4-tool-permission.md` | 25/25 PASS | **~30%** | CTO-008/009/011 tier + Tool Gater |
+
+**更新于 2026-07-15 13:58**：Phase 1 Tier 1 + Phase 2 Tier 1 全部完成。P0 + P1(前半) 交付。
 
 **结论**：四阶段分析全部完成（小全 + 小柯验证），代码吸收处于早期。
 
@@ -80,12 +82,12 @@ Phase 3 Tier 1 (Agent) ──→ 依赖 Phase 2 缓存 + Phase 1 稳定 loop
 
 ## 5. CTO 行动项
 
-| ID | 动作 | Phase | Tier | 预计改动 | 建议窗口 |
-|----|------|-------|------|---------|---------|
-| CTO-003-P2T1 | 实现 cache_control annotation（`getCacheControl()` + system prompt blocks + last message） | 2 | 1 | ~200行 | W29 立即 |
-| CTO-003-P1T1 | 重构 loop.ts：Streaming + 三级错误恢复级联 + spread-replace state | 1 | 1 | ~500行 | W29-W30 |
-| CTO-003-P4T1 | 实现规则系统（PermissionRule + 8源优先级）+ 决策管道 + PermissionMode | 4 | 1 | ~800行 | W30 |
-| CTO-003-P3T1 | 实现 AgentTool.call() → spawn + 三态执行 + tools resolve | 3 | 1 | ~600行 | W30-W31 |
+| ID | 动作 | Phase | Tier | 预计改动 | 建议窗口 | 状态 |
+|----|------|-------|------|---------|---------|------|
+| CTO-003-P2T1 | 实现 cache_control annotation（`getCacheControl()` + system prompt blocks + last message） | 2 | 1 | ~200行 | W29 立即 | ✅ 完成 2026-07-15 |
+| CTO-003-P1T1 | 重构 loop.ts：Streaming + 三级错误恢复级联 + spread-replace state | 1 | 1 | ~500行 | W29-W30 | ✅ 完成 2026-07-15 |
+| CTO-003-P4T1 | 实现规则系统（PermissionRule + 8源优先级）+ 决策管道 + PermissionMode | 4 | 1 | ~800行 | W30 | ⬜ 未开始 |
+| CTO-003-P3T1 | 实现 AgentTool.call() → spawn + 三态执行 + tools resolve | 3 | 1 | ~600行 | W30-W31 | ⬜ 未开始 |
 
 ---
 
