@@ -14,7 +14,7 @@
 - `sql/`：数据库初始化脚本，当前与 observability 相关落位最直接。
 - `vendor/openclaw/`：已裁为薄参考层（2026-07-10 中央收口），社交通道归入 TriGateway，消息队列归入 TriMC，不再作为 agent runtime 参考主线。
 - `vendor/claude-code/`：Claude Code 2.1.88 restored-src 复制的吸收基线，作为 TriMC agent 循环 infra 层。同源代码同时驱动本地 Claude Code CLI 演练场与 TriMC 服务器，保证 dev-prod parity。Phase 1 核心 Loop 吸收分析已完成（`docs/engineering/claude-code-absorption/phase-1-core-loop.md`）。
-- 编排层四组件（v0.2.0 目标）：Soul Loader（agent contract → 系统提示词）、Memory Injector（四层记忆 → memdir/）、Tool Gater（PolicyGate → useCanUseTool hooks）、Context Builder（公司背景 + registry 引用 → CLAUDE.md 注入）。全部嵌入 Claude Code `query.ts` 上下文注入链路，不做重新实现。
+- 编排层四组件（v0.2.0 目标）：Soul Loader（agent contract → 系统提示词）✅、Memory Injector（四层记忆 → memdir/）✅、Tool Gater（PolicyGate → useCanUseTool hooks）⏳、Context Builder（公司背景 + registry 引用 → CLAUDE.md 注入）✅。全部嵌入 Claude Code `query.ts` 上下文注入链路，不做重新实现。当前完成度：3/4。
 
 ## Current Code Health
 
@@ -32,6 +32,7 @@
 - **2026-07-15（CTO-009 Agent Spawn Tier Integration）**：闭合 CTO-008 权限模型的最后缺口——task handler 调用 `agentLoop()` 时注入 `tier: 'subagent'`。子代理实际 spawn 路径上 tier 限制生效（5 工具，无 task）。新增 tool_blocked 事件捕获 + Suite 9 合约测试。全量 115/115 PASS。
 - **2026-07-15（CTO-004 Context Builder）**：v0.2.0 编排层首个落地组件。`src/context-builder/` 提供 `buildContext()` + `mergeContextWithPrompt()`——将项目上下文（AGENTS.md、registry、tier 能力、角色标签）组装为 system prompt 前缀，以 `---` 分隔。`AgentLoopOptions` 新增 `context?: ContextSources`，`agentLoop()` 自动注入。16 测试 + 全量 131/131 PASS。
 - **2026-07-15（CTO-005 Soul Loader）**：v0.2.0 编排层第二个落地组件。`src/soul-loader/` 提供 `contractToPrompt()` + `contractToContextSources()`——将 AgentContract 六要素（Identity/Responsibilities/Decision Rights/Collaborators/Instructions/Tools）转换为结构化 Markdown 系统提示词，写入 ContextSources 以注入 agentLoop pipeline。23 新测试 + 全量 154/154 PASS。
+- **2026-07-15（CTO-006 Memory Injector）**：v0.2.0 编排层第三个落地组件。`src/memory-injector/` 提供 `injectAll()` + `buildMemoryContext()` + `contractToSoulMemory()`——将四层记忆（soul/memory/colleagues/social）转换为 memdir/ Markdown 文件（YAML frontmatter + body），产出 `extraContext` 行注入 Context Builder pipeline。吸收 Claude Code memdir/ 约定。25 新测试 + 全量 179/179 PASS。
 
 ## Change Tracking Baseline
 
