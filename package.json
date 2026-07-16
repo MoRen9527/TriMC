@@ -15,7 +15,12 @@
     "test": "node --import tsx --test test/**/*.test.ts",
     "test:e2e": "node --import tsx --test test/e2e/**/*.test.ts"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "dependencies": {
+    "@trimetaverse/agent-core": "file:packages/agent-core",
+    "croner": "^10.0.1",
     "pg": "^8.13.1",
     "trimodel": "file:../TriModel",
     "yaml": "^2.7.0"
