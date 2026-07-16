@@ -167,11 +167,9 @@ pwsh ../TriDeployment/tools/scaffold-k8s-app.ps1 -AppName trimc -Namespace ai-st
 - **/healthz** 不暴露模型状态，仅暴露进程存活
 - **防火墙**：生产环境仅放开 8710 端口的 Ingress 流量
 
-## 9. 未覆盖项（后续阶段）
+## 9. 已覆盖项（CTO-008-S 交付后）
 
-- OpenClow Gateway 集成（Phase 2）
-- VSCodium Glue 集成（Phase 2）
-- TriLC 本地域联调（Phase 2）
-- HPA / PDB / 多副本拓扑
-- 日志聚合与指标暴露
-- CI/CD 流水线集成（GitHub Actions → Docker Build → K8s Deploy）
+- HPA / PDB / 多副本拓扑 ✅ — 详见 `cto-008-S-k8s-ha-operations.md`（3 replicas + podAntiAffinity + PDB minAvailable=2 + Service sessionAffinity）
+- 日志聚合与指标暴露（待后续 CARRY）
+
+## 10. 未覆盖项（后续阶段）

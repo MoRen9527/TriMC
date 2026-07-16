@@ -11,4 +11,8 @@ spec:
       targetPort: 8710
       protocol: TCP
   type: ClusterIP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 300
 

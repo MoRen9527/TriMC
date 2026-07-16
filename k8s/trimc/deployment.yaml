@@ -4,7 +4,7 @@ metadata:
   name: trimc
   namespace: trimc
 spec:
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels:
       app: trimc
@@ -13,6 +13,13 @@ spec:
       labels:
         app: trimc
     spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: trimc
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: trimc
           image: trimc:dev
