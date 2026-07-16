@@ -45,3 +45,21 @@ export {
 
 export { JobExecutor } from "./job-executor.js";
 export type { JobHandler, JobExecutorOptions } from "./job-executor.js";
+
+export {
+  computeBackoff,
+  sleepWithAbort,
+  withRetry,
+  DEFAULT_BACKOFF_POLICY,
+  FAST_RETRY_POLICY,
+} from "./backoff.js";
+export type { BackoffPolicy } from "./backoff.js";
+
+export {
+  evaluateHeartbeat,
+  stripHeartbeatSummary,
+} from "./heartbeat-policy.js";
+export type {
+  HeartbeatResult,
+  HeartbeatPolicyOptions,
+} from "./heartbeat-policy.js";
