@@ -107,16 +107,17 @@ describe('resolveAgentTools', () => {
       tools: ['*'],
     };
     const tools = resolveAgentTools(agentDef);
-    // Subagent tier has 5 tools: read_file, write_file, edit_file, shell_exec, glob_search
-    assert.equal(tools.length, 5);
+    // Subagent tier has 2 read-only tools: read_file, glob_search
+    assert.equal(tools.length, 2);
     const names = tools.map(t => t.function.name);
     assert.ok(names.includes('read_file'));
-    assert.ok(names.includes('write_file'));
-    assert.ok(names.includes('edit_file'));
-    assert.ok(names.includes('shell_exec'));
     assert.ok(names.includes('glob_search'));
     // task should NOT be in subagent tier (recursion prevention)
     assert.ok(!names.includes('task'));
+    // write/shell tools should NOT be in subagent tier
+    assert.ok(!names.includes('write_file'));
+    assert.ok(!names.includes('edit_file'));
+    assert.ok(!names.includes('shell_exec'));
   });
 
   it("resolves '*' with disallowedTools filter", () => {
@@ -151,7 +152,8 @@ describe('resolveAgentTools', () => {
     assert.ok(names.includes('glob_search'));
   });
 
-  it('resolves Bash as shell_exec', () => {
+  it('resolves Bash as shell_exec but not available at subagent tier', () => {
+    // Bash maps to shell_exec in CLAUDE_TOOL_MAP, but shell_exec is not in subagent tier
     const agentDef: AgentDefinition = {
       agentType: 'general-purpose',
       whenToUse: 'test',
@@ -159,11 +161,12 @@ describe('resolveAgentTools', () => {
       tools: ['Bash'],
     };
     const tools = resolveAgentTools(agentDef);
-    assert.equal(tools.length, 1);
-    assert.equal(tools[0].function.name, 'shell_exec');
+    // shell_exec is not available at subagent tier → 0 results
+    assert.equal(tools.length, 0);
   });
 
-  it('resolves Write as write_file', () => {
+  it('resolves Write as write_file but not available at subagent tier', () => {
+    // Write maps to write_file but not in subagent tier (read-only)
     const agentDef: AgentDefinition = {
       agentType: 'general-purpose',
       whenToUse: 'test',
@@ -171,11 +174,11 @@ describe('resolveAgentTools', () => {
       tools: ['Write'],
     };
     const tools = resolveAgentTools(agentDef);
-    assert.equal(tools.length, 1);
-    assert.equal(tools[0].function.name, 'write_file');
+    assert.equal(tools.length, 0);
   });
 
-  it('resolves Edit as edit_file', () => {
+  it('resolves Edit as edit_file but not available at subagent tier', () => {
+    // Edit maps to edit_file but not in subagent tier (read-only)
     const agentDef: AgentDefinition = {
       agentType: 'general-purpose',
       whenToUse: 'test',
@@ -183,11 +186,10 @@ describe('resolveAgentTools', () => {
       tools: ['Edit'],
     };
     const tools = resolveAgentTools(agentDef);
-    assert.equal(tools.length, 1);
-    assert.equal(tools[0].function.name, 'edit_file');
+    assert.equal(tools.length, 0);
   });
 
-  it('strips sub-command syntax from Bash(git:*)', () => {
+  it('strips sub-command syntax from Bash(git:*) but not available at subagent tier', () => {
     const agentDef: AgentDefinition = {
       agentType: 'general-purpose',
       whenToUse: 'test',
@@ -195,11 +197,11 @@ describe('resolveAgentTools', () => {
       tools: ['Bash(git:*)'],
     };
     const tools = resolveAgentTools(agentDef);
-    assert.equal(tools.length, 1);
-    assert.equal(tools[0].function.name, 'shell_exec');
+    // shell_exec is not available at subagent tier → 0 results
+    assert.equal(tools.length, 0);
   });
 
-  it('strips sub-command syntax from Bash(npm:*)', () => {
+  it('strips sub-command syntax from Bash(npm:*) but not available at subagent tier', () => {
     const agentDef: AgentDefinition = {
       agentType: 'general-purpose',
       whenToUse: 'test',
@@ -207,36 +209,38 @@ describe('resolveAgentTools', () => {
       tools: ['Bash(npm:*)'],
     };
     const tools = resolveAgentTools(agentDef);
-    assert.equal(tools.length, 1);
-    assert.equal(tools[0].function.name, 'shell_exec');
+    // shell_exec is not available at subagent tier → 0 results
+    assert.equal(tools.length, 0);
   });
 
-  it('handles already-resolved TriMC tool names passed through', () => {
+  it('handles already-resolved TriMC tool names passed through (subagent tier only)', () => {
     const agentDef: AgentDefinition = {
       agentType: 'general-purpose',
       whenToUse: 'test',
       systemPrompt: 'test',
-      tools: ['read_file', 'shell_exec'],
+      tools: ['read_file', 'glob_search'],
     };
     const tools = resolveAgentTools(agentDef);
     const names = tools.map(t => t.function.name);
+    // Both are available at subagent tier
     assert.equal(names.length, 2);
     assert.ok(names.includes('read_file'));
-    assert.ok(names.includes('shell_exec'));
+    assert.ok(names.includes('glob_search'));
   });
 
-  it('case-insensitive fallback for tool names', () => {
+  it('case-insensitive fallback for tool names (subagent tier only)', () => {
     const agentDef: AgentDefinition = {
       agentType: 'general-purpose',
       whenToUse: 'test',
       systemPrompt: 'test',
-      tools: ['read', 'bash'],
+      tools: ['read', 'glob'],
     };
     const tools = resolveAgentTools(agentDef);
     const names = tools.map(t => t.function.name);
+    // Both map via case-insensitive to read_file and glob_search (both subagent tier)
     assert.equal(names.length, 2);
     assert.ok(names.includes('read_file'));
-    assert.ok(names.includes('shell_exec'));
+    assert.ok(names.includes('glob_search'));
   });
 
   it('returns empty array for unrecognized tool names', () => {

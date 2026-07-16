@@ -1,7 +1,7 @@
 // ── TriMC Agent Loop: Built-in Tool Registry ──
-// Phase 1 tools absorbed from Claude Code vendor pattern.
-// Tool definitions follow Anthropic-compatible schema (used by TriModel → DeepSeek/OpenAI format).
-// CTO-008: Added tier-based permission system (filterToolsForTier).
+// CTO-008-C Phase C2: Registry layer delegates to @trimetaverse/agent-core.
+// Concrete tool implementations (read_file, write_file, edit_file, shell_exec, glob_search, task)
+// remain TriMC-local and are registered into agent-core's shared registry.
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -10,9 +10,17 @@ import { promisify } from 'node:util';
 import { readdirSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
 import type { ToolDefinition } from 'trimodel';
-import { filterToolsForTier, type AgentTier } from './permissions.js';
+import {
+  register,
+  getToolDefinitions as coreGetToolDefinitions,
+  executeTool as coreExecuteTool,
+  type ToolHandler,
+} from '@trimetaverse/agent-core';
 
 const execAsync = promisify(execCb);
+
+// ── Re-export agent-core registry primitives ──
+export { register, type ToolHandler } from '@trimetaverse/agent-core';
 
 // ── Tool Result Types ──
 
@@ -22,29 +30,17 @@ export interface ToolResult {
   is_error?: boolean;
 }
 
-// ── Tool Handler Type ──
+// ── Tier-aware getToolDefinitions (delegates to agent-core) ──
 
-export type ToolHandler = (args: Record<string, unknown>) => Promise<string>;
-
-// ── Built-in Tool Registry ──
-
-const toolRegistry = new Map<string, { definition: ToolDefinition; handler: ToolHandler }>();
-
-function register(def: ToolDefinition, handler: ToolHandler) {
-  toolRegistry.set(def.function.name, { definition: def, handler: handler });
+export function getToolDefinitions(tier?: import('./permissions.js').AgentTier): ToolDefinition[] {
+  return coreGetToolDefinitions(tier);
 }
 
-export function getToolDefinitions(tier?: AgentTier): ToolDefinition[] {
-  const allDefs = Array.from(toolRegistry.values()).map((t) => t.definition);
-  if (!tier || tier === 'main') return allDefs;
-  return filterToolsForTier(allDefs, tier);
-}
+// ── Safe executeTool (wraps agent-core's throw-based API) ──
 
 export async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
-  const entry = toolRegistry.get(name);
-  if (!entry) return JSON.stringify({ error: `unknown tool: ${name}` });
   try {
-    return await entry.handler(args);
+    return await coreExecuteTool(name, args);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return JSON.stringify({ error: msg });

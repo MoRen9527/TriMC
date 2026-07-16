@@ -29,18 +29,21 @@ describe('Permission Model 正确性', () => {
     assert.equal(filtered.length, allDefs.length, `main 应有全部工具 (${allDefs.length})`);
   });
 
-  it('subagent 层级拥有 5 个工具（不含 task 防递归）', () => {
+  it('subagent 层级拥有 2 个只读工具（不含 task 防递归、不含写操作）', () => {
     const tier = 'subagent';
     const tools = getToolDefinitions(tier);
     const names = tools.map(nameOf);
-    assert.equal(tools.length, 5, `subagent 应有 5 个工具，实际: ${names.join(', ')}`);
+    assert.equal(tools.length, 2, `subagent 应有 2 个工具，实际: ${names.join(', ')}`);
     assert.ok(!names.includes('task'), 'subagent 不应拥有 task 工具（防递归）');
+    assert.ok(!names.includes('write_file'), 'subagent 不应拥有写工具');
+    assert.ok(!names.includes('edit_file'), 'subagent 不应拥有编辑工具');
+    assert.ok(!names.includes('shell_exec'), 'subagent 不应拥有 shell 工具');
   });
 
-  it('subagent 层级拥有全部读写和搜索工具', () => {
+  it('subagent 层级仅有只读工具（read_file, glob_search）', () => {
     const tier = 'subagent';
     const names = getToolDefinitions(tier).map(nameOf);
-    const required = ['read_file', 'write_file', 'edit_file', 'shell_exec', 'glob_search'];
+    const required = ['read_file', 'glob_search'];
     for (const r of required) {
       assert.ok(names.includes(r), `subagent 应有 ${r}，实际: ${names.join(', ')}`);
     }
@@ -96,7 +99,7 @@ describe('canUseTool 边界', () => {
   it('未注册工具默认 main-only（subagent 不能使用未知工具）', () => {
     const r = canUseTool('unknown_xyz_tool', 'subagent');
     assert.ok(!r.allowed, '未知工具 subagent 应不可用');
-    assert.ok(r.reason?.includes('not registered'), `reason 应指明未注册: ${r.reason}`);
+    assert.ok(r.reason?.includes('main'), `reason 应指明需要更高层级: ${r.reason}`);
   });
 });
 
@@ -109,9 +112,9 @@ describe('getToolNamesForTier', () => {
     assert.equal(names.size, allDefNames.length);
   });
 
-  it('subagent 包含 5 个工具', () => {
+  it('subagent 包含 2 个工具', () => {
     const names = getToolNamesForTier('subagent');
-    assert.equal(names.size, 5);
+    assert.equal(names.size, 2);
   });
 
   it('coordinator 仅包含 task', () => {
@@ -134,7 +137,7 @@ describe('filterToolsForTier', () => {
     const all = getToolDefinitions();
     const filtered = filterToolsForTier(all, 'subagent');
     const names = filtered.map(nameOf);
-    assert.equal(filtered.length, 5);
+    assert.equal(filtered.length, 2);
     assert.ok(!names.includes('task'));
   });
 
@@ -186,11 +189,11 @@ describe('Agent Loop 层级集成（事件契约）', () => {
       model: 'deepseek-v4-pro',
       turn: 1,
       tier: 'subagent',
-      availableTools: 5,
+      availableTools: 2,
       totalTools: 6,
     };
     assert.equal(event.tier, 'subagent');
-    assert.equal(event.availableTools, 5);
+    assert.equal(event.availableTools, 2);
     assert.equal(event.totalTools, 6);
   });
 
@@ -242,23 +245,23 @@ describe('Task Handler 层级注入（CTO-009）', () => {
     const taskDef = allDefs.find((t) => t.function.name === 'task');
     assert.ok(taskDef, 'task 工具应存在');
     const desc = taskDef!.function.description ?? '';
-    assert.ok(desc.includes('5 tools'), `task 描述应提及 5 tools: ${desc}`);
+    assert.ok(desc.includes('read-only'), `task 描述应提及 read-only: ${desc}`);
     assert.ok(desc.includes('no task'), `task 描述应提及 no task: ${desc}`);
     assert.ok(desc.toLowerCase().includes('recursion'), `task 描述应提及 recursion: ${desc}`);
   });
 
-  it('subagent 层级 loop_start 合约：tier + 5 tools', () => {
-    // 验证 loop_start 事件契约：当 tier=subagent 时，availableTools=5
+  it('subagent 层级 loop_start 合约：tier + 2 tools', () => {
+    // 验证 loop_start 事件契约：当 tier=subagent 时，availableTools=2
     const event = {
       type: 'loop_start' as const,
       model: 'deepseek-v4-pro',
       turn: 1,
       tier: 'subagent',
-      availableTools: 5,
+      availableTools: 2,
       totalTools: 6,
     };
     assert.equal(event.tier, 'subagent');
-    assert.equal(event.availableTools, 5);
+    assert.equal(event.availableTools, 2);
     assert.equal(event.totalTools, 6);
   });
 

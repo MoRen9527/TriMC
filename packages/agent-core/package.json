@@ -1,0 +1,29 @@
+{
+  "name": "@trimetaverse/agent-core",
+  "version": "0.1.0",
+  "description": "Shared agent-loop core for TriMC and TriLC — extracted from TriMC Phase 2",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "echo 'Tests run from TriMC workspace root'",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "trimodel": "file:../../../TriModel",
+    "yaml": "^2.6.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^22.0.0",
+    "rimraf": "^6.0.0"
+  }
+}

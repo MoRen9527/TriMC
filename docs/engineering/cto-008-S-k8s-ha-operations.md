@@ -1,7 +1,7 @@
 # CTO-008-S：TriMC K8s 高可用运维方案
 
 > 设计人：ChiefTechnologyOfficer（小狄）
-> 状态：DRAFT
+> 状态：APPROVED（CTO-008-S 交付，K8s manifests 已同步更新）
 > 日期：2026-07-16
 > 上游依据：`docs/architecture-overall-unified.mmd`（TriMC K8s 三热备）、`TriMC/k8s/trimc/`（现有 K8s manifests）
 

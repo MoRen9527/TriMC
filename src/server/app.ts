@@ -7,6 +7,7 @@ import type { AgentEvent } from '../agent-loop/loop.js';
 import { assemblePipelineOptions } from '../pipeline/assemble.js';
 import type { AgentContract } from '../contracts/agent-contract.js';
 import type { AgentTier } from '../agent-loop/permissions.js';
+import { arbitrate } from '../comm/arbitration.js';
 
 export function createTriMCApp(env: TriMCEnv) {
   const taskController = new TaskController();
@@ -209,6 +210,75 @@ export function createTriMCApp(env: TriMCEnv) {
             res.writeHead(500, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ error: 'agent_error', message: msg, events }));
           }
+          return;
+        }
+
+        // ── POST /internal/v1/heartbeat ──
+        // Enhanced heartbeat from TriLC nodes. CTO-008-M §3.5.
+        if (req.url === '/internal/v1/heartbeat' && req.method === 'POST') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(chunk);
+          }
+          const raw = Buffer.concat(chunks).toString('utf-8');
+          let hb: {
+            nodeId?: string;
+            state?: string;
+            queueSize?: number;
+            uptimeSeconds?: number;
+            agentCoreVersion?: string;
+          };
+          try {
+            hb = JSON.parse(raw);
+          } catch {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'invalid_json' }));
+            return;
+          }
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              ok: true,
+              serverTime: Date.now(),
+              nodeId: hb.nodeId ?? 'unknown',
+              commands: [] as string[],
+            }),
+          );
+          return;
+        }
+
+        // ── POST /internal/v1/events/replay ──
+        // Offline event replay from TriLC nodes. CTO-008-M §3.3.2.
+        // M.5: Conflict arbitration integrated — arbitrate() detects double-assignment etc.
+        if (req.url === '/internal/v1/events/replay' && req.method === 'POST') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(chunk);
+          }
+          const raw = Buffer.concat(chunks).toString('utf-8');
+          let body: { nodeId?: string; connectionId?: string; events?: Array<{ eventId?: string; type?: string; timestamp?: number; seqNo?: number; payload?: unknown }> };
+          try {
+            body = JSON.parse(raw);
+          } catch {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'invalid_json' }));
+            return;
+          }
+          if (!body.nodeId || !Array.isArray(body.events)) {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'missing_nodeId_or_events' }));
+            return;
+          }
+          const result = arbitrate(body.nodeId, body.events as Array<{ eventId: string; type: string; timestamp: number; seqNo: number; payload: unknown }>);
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              ok: true,
+              accepted: result.accepted,
+              conflicts: result.conflicts,
+              lastSeqNo: result.lastSeqNo,
+            }),
+          );
           return;
         }
 
