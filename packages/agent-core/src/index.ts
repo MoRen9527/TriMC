@@ -77,3 +77,13 @@ export type {
   ContractInstance,
 } from './contracts/agent-contract.js';
 export { ContractResolver, type ContractResolveResult } from './contracts/resolver.js';
+
+// Message Guard
+export {
+  validateMessage,
+  validateMessageBatch,
+  isStreamComplete,
+  sanitizeForPersistence,
+  compressMessage,
+} from './message-guard/index.js';
+export type { GuardResult, RejectReason } from './message-guard/index.js';
