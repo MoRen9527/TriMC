@@ -4,6 +4,7 @@
 
 import type { ToolDefinition, Message } from 'trimodel';
 import type { PermissionMode } from '../permissions-engine/types.js';
+import type { ProcessSupervisor } from '../../process-supervisor/types.js';
 
 // ── Agent Identity ──
 
@@ -61,6 +62,10 @@ export interface AgentSpawnConfig {
   cwd?: string;
   /** AbortSignal for cancellation */
   signal?: AbortSignal;
+  /** Optional ProcessSupervisor for lifecycle management */
+  supervisor?: ProcessSupervisor;
+  /** Scope key passed to supervisor for scope-based cancellation */
+  supervisorScopeKey?: string;
   /** Max turns override */
   maxTurns?: number;
   /** Model override */

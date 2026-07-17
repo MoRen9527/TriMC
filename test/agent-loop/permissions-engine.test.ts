@@ -2,7 +2,7 @@
 // CTO-003 P4T1: Comprehensive test coverage for the permissions engine.
 // Tests: rule parsing, safety checks, decision pipeline (all modes), engine class, edge cases.
 
-import { describe, it } from 'vitest';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { PermissionEngine } from '../../src/agent-loop/permissions-engine/index.js';
 import { parseRule, parseRules } from '../../src/agent-loop/permissions-engine/rule-parser.js';

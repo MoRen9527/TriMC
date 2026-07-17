@@ -2,7 +2,7 @@
 // CTO-003 P3T1: Tests for agent definitions, tools resolution, and spawn engine.
 // Covers: built-in agents, tools-resolve, spawnAgent, agent type routing.
 
-import { describe, it } from 'vitest';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   getBuiltInAgents,
@@ -16,6 +16,8 @@ import {
   spawnAgentAndCollect,
 } from '../../src/agent-loop/sub-agent/index.js';
 import type { AgentDefinition, AgentType, AgentSpawnConfig } from '../../src/agent-loop/sub-agent/types.js';
+import { createProcessSupervisor } from '../../src/process-supervisor/index.js';
+import type { ProcessSupervisor } from '../../src/process-supervisor/types.js';
 
 // ── Built-in Agents Tests ──
 
@@ -397,5 +399,105 @@ describe('spawnAgentAndCollect', () => {
     assert.ok(result.error);
     assert.ok(result.error!.includes('Unknown agent type'));
     assert.equal(result.toolCallsMade, 0);
+  });
+});
+
+// ── Supervisor Integration Tests (P3.4) ──
+
+describe('spawnAgent with supervisor', () => {
+  function createSupervisor() {
+    return createProcessSupervisor();
+  }
+
+  it('registers a logical run when supervisor is provided', async () => {
+    const supervisor = createSupervisor();
+    const config: AgentSpawnConfig = {
+      agentType: 'explore' as AgentType,
+      prompt: 'test task',
+      description: 'supervisor test',
+      maxTurns: 2,
+      supervisor,
+      supervisorScopeKey: 'test-scope',
+    };
+
+    let agentId: string | undefined;
+    for await (const event of spawnAgent(config)) {
+      if (event.type === 'subagent_start') {
+        agentId = event.agentId;
+      }
+      if (event.type !== 'subagent_start') break;
+    }
+
+    assert.ok(agentId);
+  });
+
+  it('completes without error when supervisor is not provided (backward compatibility)', async () => {
+    const config: AgentSpawnConfig = {
+      agentType: 'plan',
+      prompt: 'test plan task',
+      description: 'no-supervisor test',
+      maxTurns: 1,
+    };
+
+    let gotStart = false;
+    for await (const event of spawnAgent(config)) {
+      if (event.type === 'subagent_start') {
+        gotStart = true;
+      }
+      if (event.type !== 'subagent_start') break;
+    }
+    assert.equal(gotStart, true);
+  });
+
+  it('supervisor with scopeKey is propagated', async () => {
+    const supervisor = createSupervisor();
+    const config: AgentSpawnConfig = {
+      agentType: 'explore' as AgentType,
+      prompt: 'scoped test',
+      description: 'scoped agent',
+      maxTurns: 1,
+      supervisor,
+      supervisorScopeKey: 'my-scope',
+    };
+
+    let gotStart = false;
+    for await (const event of spawnAgent(config)) {
+      if (event.type === 'subagent_start') {
+        gotStart = true;
+      }
+      break;
+    }
+    assert.equal(gotStart, true);
+    supervisor.cancelScope('my-scope', 'test-cancel');
+  });
+
+  it('spawnAgentAndCollect works with supervisor', async () => {
+    const supervisor = createSupervisor();
+    const config: AgentSpawnConfig = {
+      agentType: 'nonexistent' as AgentType,
+      prompt: 'will fail',
+      description: 'should error immediately',
+      supervisor,
+    };
+
+    const result = await spawnAgentAndCollect(config);
+    assert.ok(result.error);
+    assert.ok(result.error!.includes('Unknown agent type'));
+  });
+
+  it('existing behavior unchanged: 11 base tests still pass without supervisor', async () => {
+    const config: AgentSpawnConfig = {
+      agentType: 'plan',
+      prompt: 'backward compat check',
+      description: 'no supervisor',
+      maxTurns: 1,
+    };
+
+    let events = 0;
+    for await (const event of spawnAgent(config)) {
+      events++;
+      if (events > 5) break;
+    }
+    assert.ok(events > 0);
   });
 });

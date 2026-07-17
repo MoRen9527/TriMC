@@ -5,10 +5,9 @@
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { exec as execCb } from 'node:child_process';
-import { promisify } from 'node:util';
 import { readdirSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
+import { platform } from 'node:os';
 import type { ToolDefinition } from 'trimodel';
 import {
   register,
@@ -16,8 +15,10 @@ import {
   executeTool as coreExecuteTool,
   type ToolHandler,
 } from '@trimetaverse/agent-core';
+import { createProcessSupervisor } from '../process-supervisor/supervisor.js';
+import type { ProcessSupervisor } from '../process-supervisor/types.js';
 
-const execAsync = promisify(execCb);
+const shellSupervisor: ProcessSupervisor = createProcessSupervisor();
 
 // ── Re-export agent-core registry primitives ──
 export { register, type ToolHandler } from '@trimetaverse/agent-core';
@@ -137,8 +138,16 @@ register(
   },
 );
 
+// ── Shell command wrapper (platform-aware) ──
+
+function buildShellArgv(command: string): string[] {
+  const isWindows = platform() === 'win32';
+  if (isWindows) return ['cmd', '/c', command];
+  return ['sh', '-c', command];
+}
+
 // ── Tool: shell_exec ──
-// Phase 2: policy gate with allowlist/denylist
+// P3.4: Uses ProcessSupervisor for lifecycle management (cancel, proper timeout kill, runtime visibility).
 
 const DEFAULT_ALLOWLIST = [
   'echo', 'ls', 'dir', 'cat', 'type', 'find', 'grep', 'findstr',

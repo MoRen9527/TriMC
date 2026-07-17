@@ -230,6 +230,34 @@ export async function* spawnAgent(
   let finalReason: string | undefined;
   const allMessages: Message[] = [];
 
+  // ── Supervisor integration (P3.4) ──
+  let logicalRunId: string | undefined;
+  let logicalAbortController: AbortController | undefined;
+
+  if (config.supervisor) {
+    logicalAbortController = new AbortController();
+    const managedRun = config.supervisor.registerLogicalRun({
+      runId: undefined,
+      scopeKey: config.supervisorScopeKey,
+      replaceExistingScope: false,
+      abortController: logicalAbortController,
+    });
+    logicalRunId = managedRun.runId;
+
+    // If parent signal aborts, propagate to our controller
+    if (config.signal) {
+      if (config.signal.aborted) {
+        logicalAbortController.abort(config.signal.reason);
+      } else {
+        config.signal.addEventListener('abort', () => {
+          logicalAbortController!.abort(config.signal!.reason);
+        }, { once: true });
+      }
+    }
+
+    loopOptions.signal = logicalAbortController.signal;
+  }
+
   try {
     // Run agent loop with custom tool definitions (overriding tier defaults)
     for await (const event of adaptEvents(agentId, config.agentType, agentLoop(loopOptions), toolCallsCounter)) {
@@ -256,6 +284,14 @@ export async function* spawnAgent(
       },
     };
     return;
+  } finally {
+    if (config.supervisor && logicalRunId) {
+      config.supervisor.finalizeLogicalRun(logicalRunId, {
+        reason: 'exit',
+        exitCode: 0,
+        exitSignal: null,
+      });
+    }
   }
 
   // 7. Build result — extraction happens after the agentLoop completes
