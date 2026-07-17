@@ -238,11 +238,19 @@ register(
     }
 
     try {
-      const { stdout, stderr } = await execAsync(command, { cwd, timeout: 30_000, maxBuffer: 1024 * 1024 });
+      const isWindows = platform() === 'win32';
+      const argv = isWindows ? ['cmd', '/c', command] : ['sh', '-c', command];
+      const run = await shellSupervisor.spawn({
+        argv,
+        cwd,
+        timeoutMs: 30_000,
+        captureOutput: true,
+      });
+      const result = await run.wait();
       return JSON.stringify({
-        stdout: stdout.slice(0, 50_000),
-        stderr: stderr.slice(0, 10_000),
-        exit_code: 0,
+        stdout: result.stdout.slice(0, 50_000),
+        stderr: result.stderr.slice(0, 10_000),
+        exit_code: result.exitCode ?? 0,
       });
     } catch (err: unknown) {
       const execErr = err as { stdout?: string; stderr?: string; code?: number; message?: string };

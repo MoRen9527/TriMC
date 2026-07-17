@@ -94,9 +94,13 @@ describe('sanitizeForPersistence', () => {
   });
 
   it('preserves tool_calls', () => {
-    const m = msg({ tool_calls: [{ id: 't1' }] }) as any;
+    const m = msg({
+      tool_calls: [{ id: 't1', type: 'function', function: { name: 'test', arguments: '{}' } }],
+    }) as any;
     const clean = sanitizeForPersistence(m);
-    expect((clean as any).tool_calls).toEqual([{ id: 't1' }]);
+    expect((clean as any).tool_calls).toEqual([
+      { id: 't1', type: 'function', function: { name: 'test', arguments: '{}' } },
+    ]);
   });
 });
 
