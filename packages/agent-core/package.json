@@ -17,6 +17,7 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
+    "croner": "^10.0.1",
     "trimodel": "file:../../../TriModel",
     "yaml": "^2.6.0",
     "zod": "^3.23.0"

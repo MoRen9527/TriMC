@@ -118,7 +118,8 @@ export function computePreviousRunAtMs(
     case "cron": {
       const tz = resolveTimezone(schedule.timezone);
       const croner = getCachedCroner(schedule.cron, tz);
-      const prev = croner.previousRun(new Date(beforeMs - 1));
+      const prevs = croner.previousRuns(1, new Date(beforeMs - 1));
+      const prev = prevs[0] ?? null;
       return prev ? prev.getTime() : null;
     }
 

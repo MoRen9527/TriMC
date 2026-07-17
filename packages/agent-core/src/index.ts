@@ -106,3 +106,59 @@ export type {
   SpawnInput,
   TerminationReason,
 } from './process-supervisor/index.js';
+
+// Scheduler
+export type {
+  CronSchedule,
+  CronJobState,
+  CronJob,
+  CronJobCreate,
+  CronJobPatch,
+  CronStoreFile,
+} from './scheduler/types.js';
+export {
+  newCronJobState,
+  CRON_STORE_SCHEMA,
+  CRON_STORE_VERSION,
+} from './scheduler/types.js';
+export {
+  computeNextRunAtMs,
+  computePreviousRunAtMs,
+  computeInitialNextRunAtMs,
+  validateCronExpression,
+  coerceFiniteScheduleNumber,
+  clearCronerCache,
+} from './scheduler/cron-engine.js';
+export {
+  resolveJobStaggerMs,
+  resolveDefaultCronStagger,
+  DEFAULT_STAGGER_MS,
+} from './scheduler/stagger.js';
+export {
+  loadJobStore,
+  saveJobStore,
+  invalidateJobStoreCache,
+  overrideConfigDir,
+  resetConfigDir,
+  buildJob,
+  applyJobPatch,
+  patchJobState,
+} from './scheduler/job-store.js';
+export { JobExecutor } from './scheduler/job-executor.js';
+export type { JobHandler, JobExecutorOptions } from './scheduler/job-executor.js';
+export {
+  computeBackoff,
+  sleepWithAbort,
+  withRetry,
+  DEFAULT_BACKOFF_POLICY,
+  FAST_RETRY_POLICY,
+} from './scheduler/backoff.js';
+export type { BackoffPolicy } from './scheduler/backoff.js';
+export {
+  evaluateHeartbeat,
+  stripHeartbeatSummary,
+} from './scheduler/heartbeat-policy.js';
+export type {
+  HeartbeatResult,
+  HeartbeatPolicyOptions,
+} from './scheduler/heartbeat-policy.js';
