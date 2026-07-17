@@ -4,7 +4,7 @@
 
 import type { ToolDefinition, Message } from 'trimodel';
 import type { PermissionMode } from '../permissions-engine/types.js';
-import type { ProcessSupervisor } from '../../process-supervisor/types.js';
+import type { ProcessSupervisor } from '@trimetaverse/agent-core';
 
 // ── Agent Identity ──
 

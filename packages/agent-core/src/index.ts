@@ -87,3 +87,22 @@ export {
   compressMessage,
 } from './message-guard/index.js';
 export type { GuardResult, RejectReason } from './message-guard/index.js';
+
+// Process Supervisor
+export {
+  createProcessSupervisor,
+  createRunRegistry,
+} from './process-supervisor/index.js';
+export type {
+  LogicalRunFinalizeInput,
+  ManagedRun,
+  ManagedRunStdin,
+  ProcessSupervisor,
+  RegisterLogicalRunInput,
+  RunExit,
+  RunRecord,
+  RunRegistry,
+  RunState,
+  SpawnInput,
+  TerminationReason,
+} from './process-supervisor/index.js';

@@ -15,8 +15,8 @@ import {
   executeTool as coreExecuteTool,
   type ToolHandler,
 } from '@trimetaverse/agent-core';
-import { createProcessSupervisor } from '../process-supervisor/supervisor.js';
-import type { ProcessSupervisor } from '../process-supervisor/types.js';
+import { createProcessSupervisor } from '@trimetaverse/agent-core';
+import type { ProcessSupervisor } from '@trimetaverse/agent-core';
 
 const shellSupervisor: ProcessSupervisor = createProcessSupervisor();
 

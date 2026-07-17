@@ -114,6 +114,7 @@ export function createProcessSupervisor(): ProcessSupervisor {
     };
 
     const [command, ...args] = input.argv;
+    if (!command) throw new Error('process-supervisor: spawn requires non-empty argv');
     const child: ChildProcess = cpSpawn(command, args, {
       cwd: input.cwd,
       env: input.env ? { ...process.env, ...input.env } : process.env,
