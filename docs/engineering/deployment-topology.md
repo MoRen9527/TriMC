@@ -66,7 +66,7 @@
 
 | 属性 | 值 |
 |------|-----|
-| 主提供者 | DeepSeek（默认 `deepseek-chat`） |
+| 主提供者 | DeepSeek（默认 `deepseek-v4-pro`） |
 | 备用提供者 | TriStaciss（平台统一路由） |
 | 所需密钥 | `DEEPSEEK_API_KEY`（必填）, `TRIMODEL_TRIMETAVERSE_API_KEY`（可选，有默认值） |
 
@@ -100,8 +100,8 @@
 | `TRIMODEL_TRIMETAVERSE_API_KEY` | `tmv-sk-dev-default` | TriStaciss 平台密钥 |
 | `TRIMODEL_TRISTACISS_BASE_URL` | `http://127.0.0.1:8000/v1` | TriStaciss 服务地址 |
 | `TRIMODEL_PRIMARY_PROVIDER` | `deepseek` | 主模型提供者 |
-| `TRIMODEL_DEFAULT_MODEL` | `deepseek-chat` | 默认模型 |
-| `TRIMODEL_FALLBACK_MODEL` | `deepseek-chat` | 回退模型 |
+| `TRIMODEL_DEFAULT_MODEL` | `deepseek-v4-pro` | 默认模型 |
+| `TRIMODEL_FALLBACK_MODEL` | `deepseek-v4-flash` | 回退模型 |
 | `TRIMODEL_REQUEST_TIMEOUT_MS` | `60000` | 请求超时（毫秒） |
 
 ### 4.3 启动所需最小变量集合

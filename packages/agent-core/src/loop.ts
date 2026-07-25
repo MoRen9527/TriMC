@@ -99,7 +99,7 @@ export interface AgentLoopDeps {
 export interface AgentLoopOptions {
   /** Model name to use (default: 'deepseek-v4-pro') */
   model?: string;
-  /** Fallback model for Tier 2 error recovery (default: 'deepseek-chat') */
+  /** Fallback model for Tier 2 error recovery (default: 'deepseek-v4-flash') */
   fallbackModel?: string;
   /** Maximum conversation turns before forced exit */
   maxTurns?: number;
@@ -128,7 +128,7 @@ export interface AgentLoopOptions {
   permissionEngine?: PermissionEngine;
   /** AbortSignal for cancelling in-flight requests. */
   signal?: AbortSignal;
-  /** Injectable dependencies �?gracefully degrade if not provided. */
+  /** Injectable dependencies - gracefully degrade if not provided. */
   deps?: AgentLoopDeps;
 }
 
@@ -169,13 +169,13 @@ function classifyError(err: unknown): 'transient' | 'context_overflow' | 'auth' 
 // ── Fallback Model Map ──
 
 const FALLBACK_MAP: Record<string, string> = {
-  'deepseek-v4-pro': 'deepseek-chat',
-  'deepseek-reasoner': 'deepseek-chat',
+  'deepseek-v4-pro': 'deepseek-v4-flash',
+  'deepseek-reasoner': 'deepseek-v4-flash',
   'deepseek-v4-flash': 'deepseek-v4-pro',
 };
 
 function getFallbackModel(model: string): string | undefined {
-  return FALLBACK_MAP[model] ?? 'deepseek-chat';
+  return FALLBACK_MAP[model] ?? 'deepseek-v4-flash';
 }
 
 // ── Streaming Helper ──
@@ -202,8 +202,15 @@ async function* streamChat(
       for (const tc of event.tool_calls) {
         const existing = toolCallMap.get(tc.index) ?? { id: '', name: '', arguments: '' };
         if (tc.id) existing.id = tc.id;
-        if (tc.function?.name) existing.name += tc.function.name;
-        if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+        if (tc.function?.name && existing.name !== tc.function.name) existing.name += tc.function.name;
+        if (tc.function?.arguments) {
+          const incoming = tc.function.arguments;
+          if (incoming.startsWith(existing.arguments)) {
+            existing.arguments = incoming; // cumulative snapshot (DeepSeek repeat / Anthropic accumulator)
+          } else {
+            existing.arguments += incoming; // incremental fragment (OpenAI standard)
+          }
+        }
         toolCallMap.set(tc.index, existing);
       }
     }
