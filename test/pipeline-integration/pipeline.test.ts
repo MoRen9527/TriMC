@@ -22,6 +22,7 @@ import type { SoulMemory, EpisodicMemory, ColleagueMemory, SocialMemory, MemoryP
 import { buildContext, mergeContextWithPrompt } from '../../src/context-builder/context-builder.js';
 import type { ContextSources } from '../../src/context-builder/context-builder.js';
 import { checkToolPermission, summarizeGater } from '../../src/tool-gater/gater.js';
+import '../../src/agent-loop/tools.js';
 import type { AgentTier } from '../../src/agent-loop/permissions.js';
 
 // ── Test Fixtures ──
@@ -359,12 +360,11 @@ describe('Pipeline: Tool Gater with contract tools', () => {
     assert.ok(r.reason?.includes('approval_required'), `Expected approval_required in reason, got: ${r.reason}`);
   });
 
-  it('subagent tier allows write_file but with audit tag (medium risk)', () => {
+  it('subagent tier blocks write_file (main-only)', () => {
     const r = checkToolPermission('write_file', 'subagent', toolSpecs);
-    // At subagent tier, write_file is allowed (it's in the subagent allowlist).
-    // Risk-level check: medium → allowed_with_audit
-    assert.equal(r.allowed, true);
-    assert.equal(r.reason, 'allowed_with_audit');
+    // write_file requires main tier; subagent cannot use it.
+    assert.equal(r.allowed, false);
+    assert.ok(r.reason?.includes('requires tier "main" or higher'));
   });
 
   it('summarizeGater categorizes by risk level', () => {
@@ -454,17 +454,17 @@ describe('Pipeline: Full assembly → AgentLoopOptions', () => {
     assert.ok(inMerged, 'Identity in merged prompt');
   });
 
-  it('subagent tier pipeline: write_file passes with audit, shell_exec still blocked', async () => {
+  it('subagent tier pipeline: write_file blocked (main-only), shell_exec still blocked', async () => {
     const p = await assemblePipeline(CTO_CONTRACT, 'subagent');
 
     const writeFilePerm = p.toolPermissions.find(tp => tp.name === 'write_file');
     assert.ok(writeFilePerm);
-    assert.equal(writeFilePerm.allowed, true, 'write_file allowed at subagent tier (medium risk → audit)');
-    assert.equal(writeFilePerm.reason, 'allowed_with_audit');
+    assert.equal(writeFilePerm.allowed, false, 'write_file blocked at subagent tier (requires main)');
+    assert.ok(writeFilePerm.reason?.includes('requires tier "main" or higher'));
 
     const shellExecPerm = p.toolPermissions.find(tp => tp.name === 'shell_exec');
     assert.ok(shellExecPerm);
-    assert.equal(shellExecPerm.allowed, false, 'shell_exec blocked at subagent tier (high risk)');
+    assert.equal(shellExecPerm.allowed, false, 'shell_exec blocked at subagent tier');
   });
 });
 

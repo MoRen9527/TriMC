@@ -56,7 +56,7 @@ describe('checkToolPermission — tier checks (no toolSpecs)', () => {
   it('subagent: task blocked (no recursion)', () => {
     const r = checkToolPermission('task', 'subagent');
     assert.equal(r.allowed, false);
-    assert.ok(r.reason?.includes('not allowed at tier "subagent"'));
+    assert.ok(r.reason?.includes('anti-recursion guard'));
   });
 
   it('coordinator: task allowed (only tool)', () => {
@@ -67,7 +67,7 @@ describe('checkToolPermission — tier checks (no toolSpecs)', () => {
   it('coordinator: read_file blocked', () => {
     const r = checkToolPermission('read_file', 'coordinator');
     assert.equal(r.allowed, false);
-    assert.ok(r.reason?.includes('not allowed at tier "coordinator"'));
+    assert.ok(r.reason?.includes('requires tier "subagent" or higher'));
   });
 });
 
@@ -113,7 +113,7 @@ describe('checkToolPermission — risk-level checks (with toolSpecs)', () => {
     const r = checkToolPermission('task', 'subagent', MIXED_SPECS);
     assert.equal(r.allowed, false);
     // tier check comes first — blocked by tier, not risk
-    assert.ok(r.reason?.includes('not allowed at tier "subagent"'));
+    assert.ok(r.reason?.includes('anti-recursion guard'));
   });
 });
 
@@ -137,7 +137,7 @@ describe('createToolGater — factory', () => {
     const gater = createToolGater(undefined);
     const r = gater('task', 'subagent');
     assert.equal(r.allowed, false);
-    assert.ok(r.reason?.includes('not allowed at tier "subagent"'));
+    assert.ok(r.reason?.includes('anti-recursion guard'));
   });
 
   it('bound gater with no specs: main always allows', () => {
@@ -150,7 +150,7 @@ describe('createToolGater — factory', () => {
     const gater = createToolGater(MIXED_SPECS);
     const r = gater('read_file', 'coordinator');
     assert.equal(r.allowed, false);
-    assert.ok(r.reason?.includes('not allowed at tier "coordinator"'));
+    assert.ok(r.reason?.includes('requires tier "subagent" or higher'));
   });
 });
 
@@ -208,8 +208,8 @@ describe('backward compatibility', () => {
 // ── Suite 6: Edge cases ──
 
 describe('edge cases', () => {
-  it('undefined toolSpecs allows all (tier check only)', () => {
-    const r = checkToolPermission('write_file', 'subagent');
+  it('undefined toolSpecs: tier check only (read_file allowed at subagent)', () => {
+    const r = checkToolPermission('read_file', 'subagent');
     assert.equal(r.allowed, true);
   });
 

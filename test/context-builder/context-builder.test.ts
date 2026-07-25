@@ -5,6 +5,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import { buildContext, mergeContextWithPrompt, type ContextSources } from '../../src/context-builder/context-builder.js';
+import '../../src/agent-loop/tools.js';
 
 // ── Test Fixtures ──
 
@@ -75,12 +76,12 @@ describe('Tier 能力注入', () => {
     assert.ok(result.includes('**Available Tools** (6)'), 'main 应有 6 个工具');
   });
 
-  it('subagent tier 列出 5 个工具并说明无 task', () => {
+  it('subagent tier 列出 2 个工具并说明无 task', () => {
     const sources: ContextSources = { tier: 'subagent' };
     const result = buildContext(sources);
 
     assert.ok(result.includes('`subagent`'), '应包含 subagent tier');
-    assert.ok(result.includes('**Available Tools** (5)'), 'subagent 应有 5 个工具');
+    assert.ok(result.includes('**Available Tools** (2)'), 'subagent 应有 2 个工具');
     // Verify no task in tool list
     const toolsLine = result.split('\n').find((l) => l.includes('**Available Tools**'));
     assert.ok(toolsLine, '应有 Available Tools 行');

@@ -6,6 +6,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentContract } from '../src/contracts/agent-contract.js';
+import '../src/agent-loop/tools.js';
 
 const originalFetch = globalThis.fetch;
 

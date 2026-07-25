@@ -7,7 +7,7 @@
 //
 // RUN: node --import tsx --test --test-timeout=120000 test/e2e/real-model-agent.test.ts
 
-// Import TriModel early �?triggers config.ts top-level dotenv load,
+// Import TriModel early �?triggers config.ts top-level dotenv load,
 // populating process.env from TriModel/.env before the HAS_API_KEY check.
 import 'trimodel';
 
@@ -20,7 +20,7 @@ import type { AgentContract } from '../../src/contracts/agent-contract.js';
 // ── Gate: skip if no API key ──
 
 const HAS_API_KEY = !!process.env.DEEPSEEK_API_KEY;
-const skipReason = HAS_API_KEY ? undefined : 'DEEPSEEK_API_KEY not set in TriModel/.env �?skipping E2E';
+const skipReason = HAS_API_KEY ? undefined : 'DEEPSEEK_API_KEY not set in TriModel/.env �?skipping E2E';
 
 // ── Test Fixtures ──
 
@@ -31,7 +31,7 @@ const E2E_CTO_CONTRACT: AgentContract = {
     display_name: '小狄',
     family: 'Role',
     role: 'Chief Technology Officer',
-    description: 'CTO of TriCompany �?delivers technical roadmap and code quality.',
+    description: 'CTO of TriCompany �?delivers technical roadmap and code quality.',
     user_invocable: true,
   },
   responsibilities: [
@@ -123,9 +123,9 @@ function parseSSE(text: string): Array<{ event: string; data: unknown }> {
   return results;
 }
 
-// ── Suite 1: Simple Q&A �?validates pipeline assembly + single-turn response ──
+// ── Suite 1: Simple Q&A �?validates pipeline assembly + single-turn response ──
 
-describe('E2E: Real model �?Contract-driven Q&A', { skip: skipReason }, () => {
+describe('E2E: Real model �?Contract-driven Q&A', { skip: skipReason }, () => {
   let serverUrl: string;
   let app: { start(): Promise<void>; stop(): Promise<void>; port: number };
 
@@ -204,9 +204,9 @@ describe('E2E: Real model �?Contract-driven Q&A', { skip: skipReason }, () => {
   });
 });
 
-// ── Suite 2: Tool Calling �?validates multi-turn agent loop with real tools ──
+// ── Suite 2: Tool Calling �?validates multi-turn agent loop with real tools ──
 
-describe('E2E: Real model �?Tool calling', { skip: skipReason }, () => {
+describe('E2E: Real model �?Tool calling', { skip: skipReason }, () => {
   let serverUrl: string;
   let app: { start(): Promise<void>; stop(): Promise<void>; port: number };
   const fixturePath = join(tmpdir(), 'trimc-e2e-test.txt');
@@ -244,16 +244,23 @@ describe('E2E: Real model �?Tool calling', { skip: skipReason }, () => {
     // Check for tool call events
     const toolCalls = body.events.filter((e: any) => e.type === 'tool_call');
     const toolResults = body.events.filter((e: any) => e.type === 'tool_result');
+    const messages = body.events.filter((e: any) => e.type === 'assistant_message');
 
     if (toolCalls.length > 0) {
-      // Model used tools �?verify the pipeline
+      // Model used tools �?verify the pipeline
       assert.ok(toolResults.length > 0, 'should have tool_result after tool_call');
       const call = toolCalls[0];
       assert.ok(call.name, 'tool_call should have name');
       assert.ok(call.arguments, 'tool_call should have arguments');
+
+      // Content should reference E2E marker from the file (only when tools were used)
+      const content = messages.map((e: any) => e.content).join(' ').toLowerCase();
+      assert.ok(
+        content.includes('e2e_tool_call_success') || content.includes('file correctly') || content.includes('read this file'),
+        `response should reference file content, got first 300 chars: ${content.slice(0, 300)}`,
+      );
     }
     // Whether or not tools were used, the agent should respond
-    const messages = body.events.filter((e: any) => e.type === 'assistant_message');
     assert.ok(messages.length >= 1, 'should have at least 1 assistant_message');
 
     // Verify loop_end with usage
@@ -261,19 +268,12 @@ describe('E2E: Real model �?Tool calling', { skip: skipReason }, () => {
     assert.equal(loopEnds.length, 1);
     assert.ok(loopEnds[0].usageSummary, 'should have usageSummary');
     assert.ok(loopEnds[0].usageSummary.tokens.total_tokens > 0);
-
-    // Content should reference E2E marker from the file
-    const content = messages.map((e: any) => e.content).join(' ').toLowerCase();
-    assert.ok(
-      content.includes('e2e_tool_call_success') || content.includes('file correctly') || content.includes('read this file'),
-      `response should reference file content, got first 300 chars: ${content.slice(0, 300)}`,
-    );
   });
 });
 
-// ── Suite 3: Backward Compat �?no contract still works with real model ──
+// ── Suite 3: Backward Compat �?no contract still works with real model ──
 
-describe('E2E: Real model �?Legacy no-contract', { skip: skipReason }, () => {
+describe('E2E: Real model �?Legacy no-contract', { skip: skipReason }, () => {
   let serverUrl: string;
   let app: { start(): Promise<void>; stop(): Promise<void>; port: number };
 
@@ -312,7 +312,7 @@ describe('E2E: Real model �?Legacy no-contract', { skip: skipReason }, () => {
 
 // ── Suite 4: Multi-turn conversation ──
 
-describe('E2E: Real model �?Multi-turn', { skip: skipReason }, () => {
+describe('E2E: Real model �?Multi-turn', { skip: skipReason }, () => {
   let serverUrl: string;
   let app: { start(): Promise<void>; stop(): Promise<void>; port: number };
 

@@ -81,7 +81,7 @@ describe('TriMC chat endpoint', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-5',
+        model: 'definitely-unknown-model-xyz',
         messages: [{ role: 'user', content: 'Hi' }],
       }),
     });

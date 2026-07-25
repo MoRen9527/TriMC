@@ -115,10 +115,17 @@ describe('Agent Loop Tools', () => {
   });
 
   it('shell_exec captures stderr', async () => {
-    // Use process.stderr.write with single quotes (literal in cmd.exe)
-    const result = await executeTool('shell_exec', { command: 'node -e "process.stderr.write(\'test stderr\')"' });
+    // `where`/`which` with a nonexistent target reliably writes to stderr on
+    // failure, and both base commands are in the shell allowlist. This avoids
+    // two problems with `node -e "..."`: (1) cmd.exe mangles the nested quotes
+    // so stderr ends up empty, (2) node may be absent from cmd's PATH.
+    const cmd = process.platform === 'win32'
+      ? 'where nonexistent_xyz_123'
+      : 'which nonexistent_xyz_123';
+    const result = await executeTool('shell_exec', { command: cmd });
     const parsed = JSON.parse(result);
-    assert.ok(parsed.stderr.includes('test stderr'));
+    assert.notEqual(parsed.exit_code, 0);
+    assert.ok(parsed.stderr.length > 0, `expected non-empty stderr, got: ${parsed.stderr}`);
   });
 
   it('glob_search finds .ts files', async () => {
@@ -143,13 +150,13 @@ describe('Agent Loop Tools', () => {
     assert.equal(parsed.description, 'test task');
     assert.ok(typeof parsed.content === 'string');
     assert.ok(parsed.content.length > 0);
-    assert.equal(parsed.error, null);
+    assert.equal(parsed.error, undefined);
   });
 
   it('unknown tool returns error', async () => {
     const result = await executeTool('nonexistent_tool', {});
     const parsed = JSON.parse(result);
-    assert.ok(parsed.error.includes('unknown tool'));
+    assert.ok(parsed.error.includes('Unknown tool'));
   });
 
   it('read_file missing path returns error', async () => {
