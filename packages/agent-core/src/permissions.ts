@@ -13,8 +13,11 @@ import type { ToolDefinition } from 'trimodel';
  * - `main`: Primary agent with full tool access (read, write, shell, agents).
  * - `subagent`: Delegated agent with restricted access (read-only by default, no shell).
  * - `coordinator`: Overseer agent — manages sub-agents, no direct tool execution.
+ * - `heartbeat`: Scheduled/background agent — read + write allowed, NO shell.
+ *   REQ-20260805-006: onboarding/heartbeat agents assemble company skeleton
+ *   (write files) without shell access.
  */
-export type AgentTier = 'main' | 'subagent' | 'coordinator';
+export type AgentTier = 'main' | 'subagent' | 'coordinator' | 'heartbeat';
 
 // ── Tool Tier Allowlist ──
 
@@ -25,7 +28,8 @@ export type AgentTier = 'main' | 'subagent' | 'coordinator';
 const TIER_LEVEL: Record<AgentTier, number> = {
   coordinator: 0,
   subagent: 1,
-  main: 2,
+  heartbeat: 2,
+  main: 3,
 };
 
 export const TOOL_TIER_ALLOWLIST: Record<string, AgentTier> = {
@@ -41,10 +45,12 @@ export const TOOL_TIER_ALLOWLIST: Record<string, AgentTier> = {
   // from using task regardless of tier level.
   task: 'coordinator',
 
-  // Write tools — main only
-  write_file: 'main',
-  edit_file: 'main',
-  replace_in_file: 'main',
+  // Write tools — heartbeat+ (REQ-006: scheduled agents assemble skeleton)
+  write_file: 'heartbeat',
+  edit_file: 'heartbeat',
+  replace_in_file: 'heartbeat',
+
+  // Shell — main only (heartbeat must NOT run shell)
   shell_exec: 'main',
 };
 
@@ -67,6 +73,7 @@ export function getTierToolCounts(
   return {
     coordinator: { count: filterToolsForTier(tools, 'coordinator').length },
     subagent: { count: filterToolsForTier(tools, 'subagent').length },
+    heartbeat: { count: filterToolsForTier(tools, 'heartbeat').length },
     main: { count: filterToolsForTier(tools, 'main').length },
   };
 }
