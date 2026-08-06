@@ -24,6 +24,7 @@ export {
   listTools,
   clearRegistry,
   type ToolHandler,
+  type ToolContext,
 } from './tools.js';
 
 // Permissions

@@ -10,8 +10,14 @@ import { filterToolsForTier, type AgentTier } from './permissions.js';
 
 // ── Types ──
 
-/** Tool handler function: receives args, returns JSON string result. */
-export type ToolHandler = (args: Record<string, unknown>) => Promise<string>;
+/** Tool execution context (REQ-014b: agent cwd for file/shell tools). */
+export interface ToolContext {
+  /** Working directory of the agent loop (NOT process.cwd()). */
+  cwd?: string;
+}
+
+/** Tool handler function: receives args (+ optional ctx), returns JSON string result. */
+export type ToolHandler = (args: Record<string, unknown>, ctx?: ToolContext) => Promise<string>;
 
 interface ToolRegistration {
   definition: ToolDefinition;
@@ -55,12 +61,13 @@ export function getToolDefinitions(tier?: AgentTier): ToolDefinition[] {
 export async function executeTool(
   name: string,
   args: Record<string, unknown>,
+  ctx?: ToolContext,
 ): Promise<string> {
   const tool = toolRegistry.get(name);
   if (!tool) {
     throw new Error(`Unknown tool: ${name}`);
   }
-  return tool.handler(args);
+  return tool.handler(args, ctx);
 }
 
 /**

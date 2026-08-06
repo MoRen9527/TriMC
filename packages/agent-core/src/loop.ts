@@ -126,6 +126,19 @@ export interface AgentLoopOptions {
   permissionRules?: PermissionRule[];
   /** Pre-configured PermissionEngine instance (overrides permissionMode/permissionRules). */
   permissionEngine?: PermissionEngine;
+  /**
+   * Interactive permission callback (P3, additive).
+   * Invoked ONLY when the decision pipeline returns behavior 'ask'
+   * (i.e. an ask-rule matched and the engine did not allow the call).
+   * Return 'allow' to execute once, 'always' to execute once and let the
+   * caller remember the choice session-wide, 'deny' to block.
+   * When omitted, 'ask' decisions keep the Tier-1 behavior: treated as deny.
+   */
+  onPermissionAsk?: (
+    toolName: string,
+    args: Record<string, unknown>,
+    reason?: string,
+  ) => Promise<'allow' | 'deny' | 'always'>;
   /** AbortSignal for cancelling in-flight requests. */
   signal?: AbortSignal;
   /** Injectable dependencies - gracefully degrade if not provided. */
@@ -462,22 +475,49 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
       // Permission Engine check
       const engineDecision = permissionEngine.decide(tc.function.name, args);
       if (!engineDecision.allowed) {
-        const blockReason = engineDecision.reason ?? `Blocked by permission engine (${engineDecision.decidedBy})`;
-        yield {
-          type: 'tool_blocked',
-          turn: state.turnCount,
-          tool_name: tc.function.name,
-          reason: blockReason,
-        };
-        toolResults.push({
-          role: 'tool',
-          tool_call_id: tc.id,
-          content: JSON.stringify({
-            error: `Tool "${tc.function.name}" blocked: ${blockReason}`,
-            permission_decision: engineDecision,
-          }),
-        });
-        continue;
+        // P3: 'ask' decisions can be resolved interactively when the host
+        // provides onPermissionAsk (e.g. TriLC TUI permission prompt).
+        if (engineDecision.behavior === 'ask' && options.onPermissionAsk) {
+          const verdict = await options.onPermissionAsk(
+            tc.function.name,
+            args,
+            engineDecision.reason,
+          );
+          if (verdict === 'deny') {
+            const blockReason = `User denied permission for tool "${tc.function.name}"`;
+            yield {
+              type: 'tool_blocked',
+              turn: state.turnCount,
+              tool_name: tc.function.name,
+              reason: blockReason,
+            };
+            toolResults.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content: JSON.stringify({ error: blockReason }),
+            });
+            continue;
+          }
+          // 'allow' | 'always' → fall through to execution.
+          // ('always' session memory is the callback's responsibility.)
+        } else {
+          const blockReason = engineDecision.reason ?? `Blocked by permission engine (${engineDecision.decidedBy})`;
+          yield {
+            type: 'tool_blocked',
+            turn: state.turnCount,
+            tool_name: tc.function.name,
+            reason: blockReason,
+          };
+          toolResults.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: JSON.stringify({
+              error: `Tool "${tc.function.name}" blocked: ${blockReason}`,
+              permission_decision: engineDecision,
+            }),
+          });
+          continue;
+        }
       }
 
       // Tool Gater check (graceful degrade)
@@ -499,7 +539,8 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
         }
       }
 
-      const resultContent = await executeTool(tc.function.name, args);
+      // REQ-014b: pass agent loop cwd to tools (NOT process.cwd())
+      const resultContent = await executeTool(tc.function.name, args, { cwd: options.cwd });
       const isError = resultContent.includes('"error"');
 
       yield {
