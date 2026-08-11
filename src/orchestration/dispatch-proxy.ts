@@ -72,6 +72,29 @@ export interface DispatchDeps {
   employees?: EmployeeRecord[];      // pre-loaded employees (for testing)
 }
 
+// ── Executor Interface (M1 Phase-2) ──
+// Step 6 的真实执行器：把已调度的任务交给外部会话（如 session-bridge.sendMessage）。
+// dispatch() 保持同步纯函数（兼容既有调用方/测试）；dispatchAsync() 在 Step 6 后
+// 调用 executor 并回写执行结果。
+export interface DispatchExecutorContext {
+  taskId: string;
+  employeeId: string;
+  cwd: string;
+}
+
+export interface DispatchExecutor {
+  execute(task: DispatchRequest['task'], ctx: DispatchExecutorContext): Promise<{
+    ok: boolean;
+    output?: string;
+    error?: string;
+  }>;
+}
+
+export interface AsyncDispatchDeps extends DispatchDeps {
+  executor?: DispatchExecutor;
+  cwd?: string;
+}
+
 /**
  * 6-step dispatch pipeline:
  * 1. Classify task
@@ -200,4 +223,29 @@ export function dispatch(
     },
     trace: traces,
   };
+}
+
+/**
+ * 异步版：Step 6 之后调用 executor 真正执行任务，并回写执行结果。
+ * dispatch() 的 6 步管道不变；executor 缺省时行为与 dispatch() 一致。
+ */
+export async function dispatchAsync(
+  request: DispatchRequest,
+  deps: AsyncDispatchDeps,
+): Promise<DispatchResult & { output?: string; executionError?: string }> {
+  const result = dispatch(request, deps);
+  if (!result.success || !deps.executor) {
+    return result;
+  }
+  const taskId = result.trace.find((t) => t.step === 'dispatch')?.message.match(/task-[0-9]+-[0-9]+/)?.[0];
+  const assignedTo = result.assignedTo ?? '';
+  const exec = await deps.executor.execute(request.task, {
+    taskId: taskId ?? `task-${Date.now()}`,
+    employeeId: assignedTo,
+    cwd: deps.cwd ?? process.cwd(),
+  });
+  if (exec.ok) {
+    return { ...result, output: exec.output };
+  }
+  return { ...result, success: false, rejectionReason: exec.error, executionError: exec.error };
 }

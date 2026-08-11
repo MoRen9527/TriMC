@@ -32,6 +32,7 @@ export const TIER_DESCRIPTIONS: Record<AgentTier, string> = {
   main: 'All tools available. Full access for the primary agent loop.',
   subagent: 'Restricted tool set. Read-only files and code search. No sub-agent spawning.',
   coordinator: 'Minimal tool set. Only task (spawn sub-agents). No file I/O or shell. Pure orchestrator mode.',
+  heartbeat: 'Scheduled/background agent — read + write allowed, NO shell. REQ-20260805-006.',
 };
 
 /**

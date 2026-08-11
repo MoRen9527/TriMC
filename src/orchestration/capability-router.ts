@@ -19,7 +19,7 @@ function matchIO(
   }
 
   const matched = requiredOutputs.filter((out) =>
-    targetOutputs.some((t) => (t.type || t).toLowerCase() === out.toLowerCase()),
+    targetOutputs.some((t) => (t.type ?? '').toLowerCase() === out.toLowerCase()),
   );
   const coverage = Math.round((matched.length / requiredOutputs.length) * 100);
 

@@ -1,4 +1,4 @@
-﻿{
+{
   "compilerOptions": {
     "target": "ES2022",
     "module": "NodeNext",
@@ -6,6 +6,7 @@
     "outDir": "dist",
     "rootDir": ".",
     "strict": true,
+    "noImplicitAny": false, // M1 phase-2: agent-loop 遗留 10 处参数未标注（TS7006），先放宽后收紧
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,

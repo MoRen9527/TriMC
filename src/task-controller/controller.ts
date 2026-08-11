@@ -12,6 +12,9 @@ export interface Task {
   controller: 'trimc-main';
   createdAt: string;   // ISO 8601
   updatedAt: string;   // ISO 8601
+  /** M1 Phase-2: 执行结果回写（session-bridge 回复或错误） */
+  result?: string;
+  error?: string;
 }
 
 // Backward-compatible placeholder type (pre-CTO-007)
@@ -97,6 +100,21 @@ export class TaskController {
       );
     }
     task.status = status;
+    task.updatedAt = new Date().toISOString();
+    return { ...task };
+  }
+
+  /** M1 Phase-2: 结果回写（completed 时挂 reply，failed 时挂 error） */
+  completeTask(taskId: string, result: string): Task {
+    const task = this.updateTaskStatus(taskId, 'completed');
+    task.result = result;
+    task.updatedAt = new Date().toISOString();
+    return { ...task };
+  }
+
+  failTask(taskId: string, error: string): Task {
+    const task = this.updateTaskStatus(taskId, 'failed');
+    task.error = error;
     task.updatedAt = new Date().toISOString();
     return { ...task };
   }

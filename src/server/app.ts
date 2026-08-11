@@ -8,11 +8,31 @@ import { assemblePipelineOptions } from '../pipeline/assemble.js';
 import type { AgentContract } from '../contracts/agent-contract.js';
 import type { AgentTier } from '../agent-loop/permissions.js';
 import { arbitrate } from '../comm/arbitration.js';
+import { MirrorStore } from '../mirror/store.js';
+import type { MirrorTaskStatus } from '../mirror/types.js';
+import {
+  spawnSession,
+  listAgents,
+  sendMessage,
+  buildRegistry,
+  type AgentSession,
+  type SessionBridgeOptions,
+} from '../orchestration/session-bridge.js';
 
 export function createTriMCApp(env: TriMCEnv) {
   const taskController = new TaskController();
+  const mirrorStore = new MirrorStore();
   const modelClient = createModelClient();
   let server: Server | null = null;
+
+  // ── M1 Phase-2: Session Bridge（编排层 ↔ 官方 claude 会话）──
+  const bridgeOptions: SessionBridgeOptions = {
+    runAsUser: env.runAsUser,
+    cwd: env.bridgeCwd,
+  };
+
+  /** 最近一次注册表快照（ListAgents 采集结果） */
+  let registrySnapshot: AgentSession[] = [];
 
   async function handleChat(req: { body: string }): Promise<object> {
     let parsed: { model?: string; messages?: Message[] };
@@ -45,6 +65,127 @@ export function createTriMCApp(env: TriMCEnv) {
         if (req.url === '/healthz') {
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ ok: true, service: 'trimc' }));
+          return;
+        }
+
+        // ── GET /internal/v1/agents ──
+        // M1 Phase-2: 会话注册表（claude agents --json 采集 + employeeId 映射）
+        if (req.url === '/internal/v1/agents' && req.method === 'GET') {
+          const sessions = await listAgents(bridgeOptions);
+          registrySnapshot = buildRegistry(sessions);
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              ok: true,
+              count: registrySnapshot.length,
+              fetchedAt: new Date().toISOString(),
+              agents: registrySnapshot,
+            }),
+          );
+          return;
+        }
+
+        // ── POST /internal/v1/agents/{id}/message ──
+        // M1 Phase-2: SendMessage 桥 → 状态机 queued→running→completed/failed
+        const agentMessageMatch = /^\/internal\/v1\/agents\/([^/]+)\/message$/.exec(req.url ?? '');
+        if (agentMessageMatch && req.method === 'POST') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(chunk);
+          }
+          const raw = Buffer.concat(chunks).toString('utf-8');
+          let body: { message?: string };
+          try {
+            body = JSON.parse(raw);
+          } catch {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'invalid_json' }));
+            return;
+          }
+          if (!body.message || typeof body.message !== 'string' || body.message.trim().length === 0) {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'bad_request', message: 'message is required' }));
+            return;
+          }
+
+          // 寻址：sessionId 精确 → agentId 精确 → name 匹配（如未命中，拉一次实时注册表兜底）
+          const lookupKey = agentMessageMatch[1];
+          let session = registrySnapshot.find(
+            (s) => s.sessionId === lookupKey || s.agentId === lookupKey || s.name === lookupKey,
+          );
+          if (!session) {
+            registrySnapshot = buildRegistry(await listAgents(bridgeOptions));
+            session = registrySnapshot.find(
+              (s) => s.sessionId === lookupKey || s.agentId === lookupKey || s.name === lookupKey,
+            );
+          }
+          if (!session) {
+            res.writeHead(404, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'agent_not_found', key: lookupKey }));
+            return;
+          }
+
+          // 状态机：queued → running
+          const task = taskController.createTask(body.message, 'normal');
+          taskController.updateTaskStatus(task.taskId, 'running');
+
+          const bridge = await sendMessage(session.sessionId, body.message, bridgeOptions);
+          if (bridge.ok) {
+            const done = taskController.completeTask(task.taskId, bridge.reply ?? '');
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                ok: true,
+                agent: { agentId: session.agentId, name: session.name, sessionId: session.sessionId },
+                task: done,
+                reply: bridge.reply,
+              }),
+            );
+          } else {
+            const failed = taskController.failTask(task.taskId, bridge.error ?? 'bridge_failed');
+            res.writeHead(502, { 'content-type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                ok: false,
+                error: 'bridge_failed',
+                timedOut: bridge.timedOut ?? false,
+                task: failed,
+              }),
+            );
+          }
+          return;
+        }
+
+        // ── POST /internal/v1/agents ──
+        // M1 Phase-2: spawn 新会话（body: { name, task }）
+        if (req.url === '/internal/v1/agents' && req.method === 'POST') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(chunk);
+          }
+          const raw = Buffer.concat(chunks).toString('utf-8');
+          let body: { name?: string; task?: string };
+          try {
+            body = JSON.parse(raw);
+          } catch {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'invalid_json' }));
+            return;
+          }
+          if (!body.name || typeof body.name !== 'string' || !body.task || typeof body.task !== 'string') {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'bad_request', message: 'name and task are required' }));
+            return;
+          }
+          const spawned = await spawnSession(body.name, body.task, bridgeOptions);
+          if (!spawned.ok || !spawned.agentId) {
+            res.writeHead(502, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'spawn_failed', message: spawned.error }));
+            return;
+          }
+          registrySnapshot = buildRegistry(await listAgents(bridgeOptions));
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, agentId: spawned.agentId, name: spawned.name }));
           return;
         }
 
@@ -83,6 +224,85 @@ export function createTriMCApp(env: TriMCEnv) {
             res.writeHead(500, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ error: 'model_error', message: msg }));
           }
+          return;
+        }
+
+        // ── POST /internal/v1/tasks/mirror ──
+        // S7: Receive task state snapshots from TriLC nodes.
+        // CPO Q6c + CTO §7.2 S7.
+        if (req.url === '/internal/v1/tasks/mirror' && req.method === 'POST') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(chunk);
+          }
+          const raw = Buffer.concat(chunks).toString('utf-8');
+
+          // ① 校验 body
+          let body: { nodeId?: string; tasks?: unknown[] };
+          try {
+            body = JSON.parse(raw);
+          } catch {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'invalid_json', message: 'Request body must be valid JSON' }));
+            return;
+          }
+
+          if (!body.nodeId || typeof body.nodeId !== 'string') {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'bad_request', message: 'nodeId is required' }));
+            return;
+          }
+
+          if (!Array.isArray(body.tasks) || body.tasks.length === 0) {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'bad_request', message: 'tasks must be a non-empty array' }));
+            return;
+          }
+
+          // ② 校验每个 task
+          for (let i = 0; i < body.tasks.length; i++) {
+            const t = body.tasks[i] as Record<string, unknown>;
+            if (!t.taskId || typeof t.taskId !== 'string') {
+              res.writeHead(400, { 'content-type': 'application/json' });
+              res.end(JSON.stringify({
+                ok: false,
+                error: 'bad_request',
+                message: `tasks[${i}]: taskId is required`,
+              }));
+              return;
+            }
+          }
+
+          // ③ mirror
+          const mirrored = mirrorStore.mirror(
+            body.nodeId,
+            body.tasks as Array<{
+              taskId: string;
+              title: string;
+              status: MirrorTaskStatus;
+              summary: string;
+              updatedAt: string;
+            }>,
+          );
+
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, mirrored }));
+          return;
+        }
+
+        // ── GET /internal/v1/tasks ──
+        // S7: Query unified task state across all TriLC nodes.
+        if (req.url?.startsWith('/internal/v1/tasks') && req.method === 'GET') {
+          const urlObj = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+          const nodeId = urlObj.searchParams.get('nodeId') ?? undefined;
+          const status = urlObj.searchParams.get('status') as MirrorTaskStatus | undefined;
+          const limit = parseInt(urlObj.searchParams.get('limit') ?? '50', 10);
+          const offset = parseInt(urlObj.searchParams.get('offset') ?? '0', 10);
+
+          const result = mirrorStore.query({ nodeId, status, limit, offset });
+
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(result));
           return;
         }
 

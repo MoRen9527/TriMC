@@ -7,6 +7,10 @@ export type TriMCEnv = {
   cwd: string;
   /** Root path for stateful memory files (from TRIMC_MEMDIR). When unset, memory injection is skipped. */
   memdirPath?: string;
+  /** M1 Phase-2: session-bridge 降权账号（如 fleet）；不设则以当前用户直跑（本地开发） */
+  runAsUser?: string;
+  /** M1 Phase-2: claude 会话工作目录（默认 /srv/fleet） */
+  bridgeCwd: string;
 };
 
 export function readEnv(): TriMCEnv {
@@ -17,5 +21,7 @@ export function readEnv(): TriMCEnv {
     vscodiumGlueBaseUrl: process.env.VSCODIUM_GLUE_BASE_URL ?? 'http://127.0.0.1:8730',
     cwd: process.env.TRIMC_CWD ?? process.cwd(),
     memdirPath: process.env.TRIMC_MEMDIR || undefined,
+    runAsUser: process.env.TRIMC_RUNAS || undefined,
+    bridgeCwd: process.env.TRIMC_BRIDGE_CWD ?? '/srv/fleet',
   };
 }
