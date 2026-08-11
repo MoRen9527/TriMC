@@ -140,6 +140,11 @@ export function createProcessSupervisor(): ProcessSupervisor {
     if (input.input && child.stdin) {
       child.stdin.write(input.input);
       child.stdin.end();
+    } else if (child.stdin) {
+      // No input provided: close stdin immediately so commands that read from
+      // stdin (Windows find.exe, grep without args, sort, etc.) don't block
+      // forever waiting for input — which manifests as the shell "hanging".
+      child.stdin.end();
     }
 
     if (overallTimeoutMs) {
