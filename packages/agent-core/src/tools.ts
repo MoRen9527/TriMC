@@ -85,6 +85,14 @@ export function listTools(): string[] {
 }
 
 /**
+ * Unregister a single tool by name.
+ * C10: used by McpClientManager.disconnectServer() for per-tool cleanup.
+ */
+export function unregister(name: string): void {
+  toolRegistry.delete(name);
+}
+
+/**
  * Clear all registered tools.
  */
 export function clearRegistry(): void {

@@ -18,6 +18,7 @@ export {
 // Tools (registry only — concrete tools live in TriMC / TriLC)
 export {
   register,
+  unregister,
   getToolDefinitions,
   executeTool,
   hasTool,

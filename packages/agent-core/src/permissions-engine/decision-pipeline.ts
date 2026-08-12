@@ -295,6 +295,26 @@ function checkDontAskMode(
     }
   }
 
+  // C10: MCP tools that suggest file operations — boundary-check by args.
+  // Fall through to auto-allow if not file-like (e.g., mcp__slack__send_message).
+  if (isMcpFileTool(toolName) && cwd) {
+    const mcpFilePath = extractFilePath(args);
+    if (mcpFilePath && isPathInBoundary(mcpFilePath, cwd, additionalDirectories)) {
+      return {
+        allowed: true,
+        behavior: 'allow',
+        reason: `Permission mode: dontAsk (MCP file tool "${toolName}" within boundary)`,
+        decidedBy: 'mode_dont_ask',
+      };
+    }
+    return {
+      allowed: false,
+      behavior: 'deny',
+      reason: `MCP tool "${toolName}" blocked in dontAsk mode: file operation outside boundary or path not extractable (cwd: "${cwd}")`,
+      decidedBy: 'mode_dont_ask',
+    };
+  }
+
   // Non-file tools (TaskCreate, SendMessage, etc.): auto-allow
   return {
     allowed: true,
@@ -302,6 +322,24 @@ function checkDontAskMode(
     reason: `Permission mode: dontAsk`,
     decidedBy: 'mode_dont_ask',
   };
+}
+
+// ── C10: MCP tool classification heuristics ──
+
+/** C10: Check if an MCP tool name suggests write/mutate capability. */
+function isMcpWriteTool(toolName: string): boolean {
+  if (!toolName.startsWith('mcp__')) return false;
+  const writeKeywords = ['write', 'edit', 'delete', 'create', 'update', 'remove', 'mkdir', 'rm', 'mv', 'cp', 'rename', 'move', 'copy'];
+  const lower = toolName.toLowerCase();
+  return writeKeywords.some((kw) => lower.includes(kw));
+}
+
+/** C10: Check if an MCP tool name suggests file operation capability. */
+function isMcpFileTool(toolName: string): boolean {
+  if (!toolName.startsWith('mcp__')) return false;
+  const fileKeywords = ['file', 'read', 'write', 'dir', 'path', 'glob', 'grep', 'search', 'list', 'open', 'save'];
+  const lower = toolName.toLowerCase();
+  return fileKeywords.some((kw) => lower.includes(kw));
 }
 
 /** C8: Mode plan — read-only, deterministic non-interactive. */
@@ -319,6 +357,16 @@ function checkPlanMode(
       allowed: false,
       behavior: 'deny',
       reason: `Tool "${toolName}" blocked in plan mode: write/mutate operations not allowed (read-only mode)`,
+      decidedBy: 'mode_plan',
+    };
+  }
+
+  // C10: MCP tools — classify by name heuristics (conservative: deny on write keywords)
+  if (isMcpWriteTool(toolName)) {
+    return {
+      allowed: false,
+      behavior: 'deny',
+      reason: `MCP tool "${toolName}" classified as write operation — blocked in plan mode (read-only)`,
       decidedBy: 'mode_plan',
     };
   }

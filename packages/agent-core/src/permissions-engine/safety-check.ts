@@ -64,6 +64,14 @@ export function runSafetyCheck(
     if (pathResult.triggered) return pathResult;
   }
 
+  // C10: MCP tools — check args for sensitive paths (bypass-immune).
+  // MCP tools proxy to external servers that may have write capability;
+  // the safety check inspects args for .git/, .claude/, etc. substrings.
+  if (toolName.startsWith('mcp__')) {
+    const mcpResult = checkMcpSensitivePaths(toolName, args);
+    if (mcpResult.triggered) return mcpResult;
+  }
+
   // Shell execution: check for shell config modifications
   if (toolName === SHELL_TOOL) {
     const shellResult = checkShellConfigAccess(args);
@@ -75,6 +83,40 @@ export function runSafetyCheck(
     // In bypassPermissions mode, sub-agent spawn could lead to uncontrolled operations
     // This is a bypass-immune check: even with bypassPermissions, spawning agents always asks
     return { triggered: false }; // Tier 2: add prompt confirmation
+  }
+
+  return { triggered: false };
+}
+
+// ── C10: MCP Sensitive Path Detection ──
+
+/** C10: Check MCP tool args for sensitive path substrings. */
+function checkMcpSensitivePaths(toolName: string, args: Record<string, unknown>): SafetyCheckResult {
+  const argsStr = JSON.stringify(args).toLowerCase().replace(/\\/g, '/');
+
+  // Sensitive paths that should trigger safety check even for MCP tools
+  const mcpSensitivePatterns = [
+    '.git/',
+    '.claude/',
+    '.github/',
+    '.ssh/',
+    'authorized_keys',
+    'id_rsa',
+    'id_ed25519',
+    '.env',
+    'credentials',
+    'secret',
+    '/etc/passwd',
+    '/etc/shadow',
+  ];
+
+  for (const pattern of mcpSensitivePatterns) {
+    if (argsStr.includes(pattern.toLowerCase())) {
+      return {
+        triggered: true,
+        reason: `MCP tool "${toolName}" arguments reference sensitive path/key "${pattern}". Blocked by bypass-immune safety check.`,
+      };
+    }
   }
 
   return { triggered: false };
