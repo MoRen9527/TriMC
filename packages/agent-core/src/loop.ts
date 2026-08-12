@@ -179,15 +179,44 @@ function classifyError(err: unknown): 'transient' | 'context_overflow' | 'auth' 
   return 'permanent';
 }
 
-// ── Fallback Model Map ──
+// ── Fallback Model Map (C12) ──
+//
+// Two-layer fallback architecture:
+//   Layer 1 (TriModel): ModelClient.stream() handles provider-level fallback
+//     (e.g. tmv-deepseek-v4-pro → tmv-deepseek-chat → deepseek-v4-flash).
+//     Each model's fallback is defined in TriModel's buildRegistry().
+//   Layer 2 (agent-core): When TriModel exhausts all provider-level fallbacks,
+//     this FALLBACK_MAP provides the ultimate model-level fallback.
+//
+// tmv-* models (TriStaciss-routed): their ultimate fallback always points to
+// a direct-provider model (deepseek-v4-*). The tmv→tmv chain is handled by
+// TriModel layer; agent-core only activates when that chain is fully exhausted.
+//
+// The `?? 'deepseek-v4-flash'` default in getFallbackModel() is the final
+// safety net: any unknown/future model that isn't explicitly mapped will
+// attempt deepseek-v4-flash as last resort.
 
 const FALLBACK_MAP: Record<string, string> = {
+  // Direct DeepSeek provider models
   'deepseek-v4-pro': 'deepseek-v4-flash',
   'deepseek-reasoner': 'deepseek-v4-flash',
   'deepseek-v4-flash': 'deepseek-v4-pro',
+
+  // tmv-* (TriStaciss-routed) → ultimate fallback to direct provider.
+  // TriModel layer handles tmv→tmv chaining; these entries activate
+  // only when the entire tmv chain is exhausted.
+  'tmv-deepseek-v4-pro': 'deepseek-v4-flash',
+  'tmv-deepseek-chat': 'deepseek-v4-flash',
+  'tmv-deepseek-v4-flash': 'deepseek-v4-pro',
+  'tmv-deepseek-reasoner': 'deepseek-v4-flash',
 };
 
-function getFallbackModel(model: string): string | undefined {
+/**
+ * Resolve the ultimate fallback model for agent-core's Tier 2 recovery.
+ * Always returns a string: explicit FALLBACK_MAP entry, or 'deepseek-v4-flash'
+ * as the final safety net for unknown/future models.
+ */
+function getFallbackModel(model: string): string {
   return FALLBACK_MAP[model] ?? 'deepseek-v4-flash';
 }
 
