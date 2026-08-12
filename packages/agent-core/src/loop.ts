@@ -92,11 +92,6 @@ export interface AgentLoopDeps {
   // ── Tool Gater ──
   /** Check tool permission by tier + risk-level policy. */
   checkToolPermission?: (toolName: string, tier: AgentTier, toolSpecs?: ToolSpec[]) => { allowed: boolean; reason?: string };
-
-  // ── Compaction (C15) ──
-  /** Compact conversation history when context window is near full.
-   *  Receives the full message list, returns a summary that replaces history. */
-  compactConversation?: (messages: Message[]) => Promise<{ summary: string; tokensRemoved: number }>;
 }
 
 // ── AgentLoopOptions ──
@@ -133,8 +128,6 @@ export interface AgentLoopOptions {
   permissionEngine?: PermissionEngine;
   /** C9: Additional directories to treat as within-boundary for acceptEdits/dontAsk. */
   additionalDirectories?: string[];
-  /** C15: Prompt token threshold for auto-compaction (default: 80% of 128K = ~102400). */
-  compactThreshold?: number;
   /**
    * Interactive permission callback (P3, additive).
    * Invoked ONLY when the decision pipeline returns behavior 'ask'
@@ -167,11 +160,7 @@ export type AgentEvent =
   | { type: 'loop_end'; reason: 'done' | 'max_turns' | 'error' | 'tool_calls_finish' | 'aborted'; finish_reason?: string; usageSummary?: UsageSummary }
   | { type: 'cache_metrics'; metrics: CacheMetrics }
   | { type: 'recovery'; turn: number; tier: 1 | 2; message: string }
-  | { type: 'error'; message: string }
-  // C15: auto-compaction events
-  | { type: 'compaction'; message: string }
-  | { type: 'compaction_done'; summaryTokens: number; tokensRemoved: number }
-  | { type: 'compaction_failed'; message: string };
+  | { type: 'error'; message: string };
 
 // ── Loop State ──
 
@@ -462,36 +451,6 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
     }
 
     accumulator.add(response);
-
-    // C15: Auto-compaction — when cumulative prompt tokens approach
-    // the model's context window, compact conversation history to stay
-    // within limits. Default threshold: 80% of 128K context (~102400 tokens).
-    const compactThreshold = options.compactThreshold ?? 102_400;
-    if (deps.compactConversation && accumulator.totalPromptTokens > compactThreshold) {
-      yield { type: 'compaction', message: `Compacting conversation (${accumulator.totalPromptTokens} tokens > ${compactThreshold} threshold)...` };
-      try {
-        const compactResult = await deps.compactConversation(state.messages);
-        // Replace history: summary + last 2 messages for immediate context
-        state = {
-          ...state,
-          messages: [
-            { role: 'user', content: `[Previous conversation summary]\n${compactResult.summary}` },
-            ...state.messages.slice(-2),
-          ],
-        };
-        accumulator.reset();
-        yield {
-          type: 'compaction_done',
-          summaryTokens: Math.ceil(compactResult.summary.length / 4),
-          tokensRemoved: compactResult.tokensRemoved,
-        };
-        console.log(`[agent-loop] compaction complete: removed ~${compactResult.tokensRemoved} tokens, summary ${compactResult.summary.length} chars`);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[agent-loop] compaction failed: ${msg}`);
-        yield { type: 'compaction_failed', message: msg };
-      }
-    }
 
     // Cache metrics
     if (response.usage && deps.buildCacheMetrics) {
