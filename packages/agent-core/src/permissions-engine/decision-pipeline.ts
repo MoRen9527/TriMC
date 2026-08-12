@@ -329,17 +329,17 @@ function checkDontAskMode(
 /** C10: Check if an MCP tool name suggests write/mutate capability. */
 function isMcpWriteTool(toolName: string): boolean {
   if (!toolName.startsWith('mcp__')) return false;
+  const bareName = toolName.slice(5).toLowerCase(); // strip 'mcp__' prefix to avoid false matches (e.g. 'cp' in 'mcp__')
   const writeKeywords = ['write', 'edit', 'delete', 'create', 'update', 'remove', 'mkdir', 'rm', 'mv', 'cp', 'rename', 'move', 'copy'];
-  const lower = toolName.toLowerCase();
-  return writeKeywords.some((kw) => lower.includes(kw));
+  return writeKeywords.some((kw) => bareName.includes(kw));
 }
 
 /** C10: Check if an MCP tool name suggests file operation capability. */
 function isMcpFileTool(toolName: string): boolean {
   if (!toolName.startsWith('mcp__')) return false;
+  const bareName = toolName.slice(5).toLowerCase(); // strip 'mcp__' prefix
   const fileKeywords = ['file', 'read', 'write', 'dir', 'path', 'glob', 'grep', 'search', 'list', 'open', 'save'];
-  const lower = toolName.toLowerCase();
-  return fileKeywords.some((kw) => lower.includes(kw));
+  return fileKeywords.some((kw) => bareName.includes(kw));
 }
 
 /** C8: Mode plan — read-only, deterministic non-interactive. */
