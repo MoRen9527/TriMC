@@ -1,5 +1,5 @@
 // ── TriMC Tool Permission System ──
-// CTO-008-C Phase C2: Re-exports from @trimetaverse/agent-core shared truth,
+// CTO-008-C Phase C2: Re-exports from @tricompany/agent-core shared truth,
 // plus TriMC-specific additions (TIER_DESCRIPTIONS, backward-compatible helpers).
 // agent-core uses a level-based permission model:
 //   coordinator=0 < subagent=1 < main=2
@@ -10,7 +10,7 @@ import {
   type AgentTier,
   listTools,
   canUseTool,
-} from '@trimetaverse/agent-core';
+} from '@tricompany/agent-core';
 
 // ── Re-export from agent-core (shared truth) ──
 export {
@@ -20,10 +20,10 @@ export {
   filterToolsForTier,
   getTierToolCounts,
   canUseTool,
-} from '@trimetaverse/agent-core';
+} from '@tricompany/agent-core';
 
 // agent-core's getTierSummary(tier) → string — alias to avoid conflict
-export { getTierSummary as getTierSummaryForTier } from '@trimetaverse/agent-core';
+export { getTierSummary as getTierSummaryForTier } from '@tricompany/agent-core';
 
 // ── TriMC-specific additions ──
 

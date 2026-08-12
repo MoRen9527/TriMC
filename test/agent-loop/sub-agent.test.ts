@@ -16,8 +16,8 @@ import {
   spawnAgentAndCollect,
 } from '../../src/agent-loop/sub-agent/index.js';
 import type { AgentDefinition, AgentType, AgentSpawnConfig } from '../../src/agent-loop/sub-agent/types.js';
-import { createProcessSupervisor } from '@trimetaverse/agent-core';
-import type { ProcessSupervisor } from '@trimetaverse/agent-core';
+import { createProcessSupervisor } from '@tricompany/agent-core';
+import type { ProcessSupervisor } from '@tricompany/agent-core';
 
 // ── Built-in Agents Tests ──
 

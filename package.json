@@ -19,7 +19,7 @@
     "packages/*"
   ],
   "dependencies": {
-    "@trimetaverse/agent-core": "file:packages/agent-core",
+    "@tricompany/agent-core": "file:../TriCompany/packages/agent-core",
     "croner": "^10.0.1",
     "pg": "^8.13.1",
     "trimodel": "file:../TriModel",

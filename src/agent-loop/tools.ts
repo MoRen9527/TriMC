@@ -1,5 +1,5 @@
 // ── TriMC Agent Loop: Built-in Tool Registry ──
-// CTO-008-C Phase C2: Registry layer delegates to @trimetaverse/agent-core.
+// CTO-008-C Phase C2: Registry layer delegates to @tricompany/agent-core.
 // Concrete tool implementations (read_file, write_file, edit_file, shell_exec, glob_search, task)
 // remain TriMC-local and are registered into agent-core's shared registry.
 
@@ -14,14 +14,14 @@ import {
   getToolDefinitions as coreGetToolDefinitions,
   executeTool as coreExecuteTool,
   type ToolHandler,
-} from '@trimetaverse/agent-core';
-import { createProcessSupervisor } from '@trimetaverse/agent-core';
-import type { ProcessSupervisor } from '@trimetaverse/agent-core';
+} from '@tricompany/agent-core';
+import { createProcessSupervisor } from '@tricompany/agent-core';
+import type { ProcessSupervisor } from '@tricompany/agent-core';
 
 const shellSupervisor: ProcessSupervisor = createProcessSupervisor();
 
 // ── Re-export agent-core registry primitives ──
-export { register, type ToolHandler } from '@trimetaverse/agent-core';
+export { register, type ToolHandler } from '@tricompany/agent-core';
 
 // ── Tool Result Types ──
 

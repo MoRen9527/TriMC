@@ -1,5 +1,5 @@
 // ── TriMC Agent Loop (Thin Shell) ──
-// CTO-008-C Phase C2: Delegates to @trimetaverse/agent-core shared agent loop.
+// CTO-008-C Phase C2: Delegates to @tricompany/agent-core shared agent loop.
 // TriMC-specific modules (context-builder, prompt-cache, tool-gater) are wired
 // via AgentLoopDeps factory and injected into agent-core's agentLoop.
 //
@@ -13,7 +13,7 @@ import {
   agentLoop as coreAgentLoop,
   type AgentEvent as CoreAgentEvent,
   type AgentLoopDeps,
-} from '@trimetaverse/agent-core';
+} from '@tricompany/agent-core';
 import { type Message, type UsageSummary } from 'trimodel';
 import { type AgentTier } from './permissions.js';
 import { buildContext, mergeContextWithPrompt, type ContextSources } from '../context-builder/context-builder.js';
