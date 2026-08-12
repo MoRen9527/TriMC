@@ -5,18 +5,31 @@
 // Tier 1 MVP: PermissionMode (3 modes), PermissionRule (8-source priority),
 // DecisionResult (allow/deny/ask), and decision pipeline context.
 
-// ── PermissionMode (Tier 1: 3 of 7 Claude Code modes) ──
+// ── PermissionMode (6 modes, aligned with Claude Code permission matrix) ──
 
 /**
  * Permission mode determines the default behavior for tool execution.
  *
+ * Interactive modes (user can confirm):
  * - `default`: Standard mode — every tool call requires explicit confirmation.
  * - `acceptEdits`: Auto-accept edit operations within the current working directory.
- * - `bypassPermissions`: Skip all permission checks (Safety Check still applies — bypass-immune).
  *
- * Tier 2+: plan, dontAsk, auto, bubble
+ * Non-interactive modes (deterministic — no user prompt, 'ask' rules revert to deny):
+ * - `dontAsk`: Auto-allow tools within cwd; deny everything outside. No shell allowed.
+ * - `plan`: Read-only mode — all write tools blocked, read/search tools allowed.
+ * - `auto`: Auto-execute all operations (equivalent to bypassPermissions in behavior,
+ *    but semantically distinct for audit trail).
+ *
+ * Full-bypass mode:
+ * - `bypassPermissions`: Skip ALL permission checks (Safety Check still applies — bypass-immune).
  */
-export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
+export type PermissionMode =
+  | 'default'
+  | 'acceptEdits'
+  | 'bypassPermissions'
+  | 'dontAsk'
+  | 'plan'
+  | 'auto';
 
 // ── PermissionBehavior ──
 
@@ -49,6 +62,9 @@ export type DecisionStep =
   | 'safety_check'
   | 'mode_bypass'
   | 'mode_accept_edits'
+  | 'mode_dont_ask'
+  | 'mode_plan'
+  | 'mode_auto'
   | 'always_allow'
   | 'default_deny';
 

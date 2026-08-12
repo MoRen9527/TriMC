@@ -1,7 +1,10 @@
-// ── 7-Step Decision Pipeline ──
+// ── 10-Step Decision Pipeline (C8 extended) ──
 // CTO-003 P4T1: Absorbed from Claude Code 2.1.88 vendor (permissions.ts).
 // Ordered decision pipeline that processes tool invocations through
-// deny → ask → safety → mode → allow → default-deny chain.
+// deny → ask → safety → mode(bypass/auto/dontAsk/plan/acceptEdits) → allow → default-deny chain.
+//
+// Non-interactive modes (dontAsk, plan, auto): 'ask' rules are treated as deterministic deny
+// because there is no user interaction channel to resolve the confirmation.
 //
 // Shared between TriMC and TriLC via agent-core.
 
@@ -12,22 +15,29 @@ import { runSafetyCheck } from './safety-check.js';
 // ── Pipeline ──
 
 /**
- * Run the full 7-step decision pipeline for a tool invocation.
+ * Run the full decision pipeline for a tool invocation.
  *
  * Steps (in order):
  *   1. Always-deny rules (highest priority)
- *   2. Always-ask rules
+ *   2. Always-ask rules (non-interactive modes → deny)
  *   3. Safety check (bypass-immune — fires in ALL modes)
  *   4. Mode: bypassPermissions → allow all non-safety-flagged
- *   5. Mode: acceptEdits → restrict write tools to cwd
- *   6. Always-allow rules
- *   7. Default deny (fail closed)
+ *   5. Mode: auto → same as bypassPermissions
+ *   6. Mode: dontAsk → auto-allow within cwd, deny shell + outside-cwd writes
+ *   7. Mode: plan → read-only (deny writes, allow reads)
+ *   8. Mode: acceptEdits → restrict write tools to cwd
+ *   9. Always-allow rules
+ *  10. Default deny (fail closed)
+ *
+ * Non-interactive guarantee (C8): In dontAsk/plan/auto modes, matched 'ask'
+ * rules are converted to deterministic 'deny' because there is no user
+ * interaction channel to resolve the confirmation.
  *
  * @param toolName - Name of the tool being invoked
  * @param args - Tool arguments for content matching and safety checks
  * @param mode - Current permission mode
  * @param rules - Sorted rules (highest source priority first)
- * @param cwd - Current working directory for acceptEdits path checks
+ * @param cwd - Current working directory for acceptEdits/dontAsk path checks
  */
 export function runDecisionPipeline(
   toolName: string,
@@ -44,8 +54,25 @@ export function runDecisionPipeline(
   if (denyResult) return denyResult;
 
   // ── Step 2: Always-ask rules ──
+  // C8: In non-interactive modes, 'ask' rules cannot be resolved because
+  // there is no user interaction channel → convert to deterministic 'deny'.
   const askResult = checkAskRules(toolName, args, sorted);
-  if (askResult) return askResult;
+  if (askResult) {
+    const nonInteractiveModes: PermissionMode[] = ['dontAsk', 'plan', 'auto'];
+    if (nonInteractiveModes.includes(mode)) {
+      const decidedBy = (
+        mode === 'dontAsk' ? 'mode_dont_ask' :
+        mode === 'plan' ? 'mode_plan' : 'mode_auto'
+      ) as DecisionResult['decidedBy'];
+      return {
+        allowed: false,
+        behavior: 'deny',
+        reason: `Tool "${toolName}" requires confirmation but mode "${mode}" is non-interactive — denied (ask rule: ${askResult.reason})`,
+        decidedBy,
+      };
+    }
+    return askResult;
+  }
 
   // ── Step 3: Safety check (bypass-immune) ──
   const safetyResult = runSafetyCheck(toolName, args);
@@ -68,17 +95,43 @@ export function runDecisionPipeline(
     };
   }
 
-  // ── Step 5: Mode — acceptEdits ──
+  // ── Step 5: Mode — auto (C8) ──
+  // Same behavior as bypassPermissions: allow all non-safety-flagged tools.
+  // Semantically distinct for audit trail (decidedBy: mode_auto vs mode_bypass).
+  if (mode === 'auto') {
+    return {
+      allowed: true,
+      behavior: 'allow',
+      reason: 'Permission mode: auto',
+      decidedBy: 'mode_auto',
+    };
+  }
+
+  // ── Step 6: Mode — dontAsk (C8) ──
+  // Non-interactive, cwd-scoped. Auto-allow within cwd; deny shell + outside-cwd writes.
+  if (mode === 'dontAsk') {
+    const dontAskResult = checkDontAskMode(toolName, args, cwd);
+    if (dontAskResult) return dontAskResult;
+  }
+
+  // ── Step 7: Mode — plan (C8) ──
+  // Non-interactive, read-only. All write tools blocked; read/search tools allowed.
+  if (mode === 'plan') {
+    const planResult = checkPlanMode(toolName, args);
+    if (planResult) return planResult;
+  }
+
+  // ── Step 8: Mode — acceptEdits ──
   if (mode === 'acceptEdits') {
     const editResult = checkAcceptEditsMode(toolName, args, cwd);
     if (editResult) return editResult;
   }
 
-  // ── Step 6: Always-allow rules ──
+  // ── Step 9: Always-allow rules ──
   const allowResult = checkAllowRules(toolName, args, sorted);
   if (allowResult) return allowResult;
 
-  // ── Step 7: Default deny ──
+  // ── Step 10: Default deny ──
   return {
     allowed: false,
     behavior: 'deny',
@@ -184,6 +237,89 @@ function checkAcceptEditsMode(
     behavior: 'deny',
     reason: `Tool "${toolName}" blocked in acceptEdits mode: target path is outside cwd "${cwd ?? 'unknown'}"`,
     decidedBy: 'mode_accept_edits',
+  };
+}
+
+/** C8: Mode dontAsk — cwd-scoped auto-allow, deterministic non-interactive. */
+function checkDontAskMode(
+  toolName: string,
+  args: Record<string, unknown>,
+  cwd?: string,
+): DecisionResult | null {
+  // Shell tools always blocked in dontAsk mode — no boundary guarantee possible
+  const shellTools = ['shell_exec', 'Bash'];
+  if (shellTools.includes(toolName)) {
+    return {
+      allowed: false,
+      behavior: 'deny',
+      reason: `Tool "${toolName}" blocked in dontAsk mode: shell commands require interactive confirmation`,
+      decidedBy: 'mode_dont_ask',
+    };
+  }
+
+  // Write tools: allowed only within cwd
+  const fileWriteTools = ['write_file', 'edit_file', 'Write', 'Edit', 'replace_in_file'];
+  if (fileWriteTools.includes(toolName) && cwd) {
+    const filePath = extractFilePath(args);
+    if (filePath) {
+      const normalizedCwd = cwd.toLowerCase().replace(/\\/g, '/');
+      const normalizedPath = filePath.toLowerCase().replace(/\\/g, '/');
+      const absolutePath = normalizedPath.startsWith('/') || /^[a-z]:/i.test(normalizedPath)
+        ? normalizedPath
+        : `${normalizedCwd}/${normalizedPath}`;
+
+      if (absolutePath.startsWith(normalizedCwd)) {
+        return {
+          allowed: true,
+          behavior: 'allow',
+          reason: `Permission mode: dontAsk (tool "${toolName}" within cwd)`,
+          decidedBy: 'mode_dont_ask',
+        };
+      }
+    }
+    // Write tool outside cwd → deny
+    return {
+      allowed: false,
+      behavior: 'deny',
+      reason: `Tool "${toolName}" blocked in dontAsk mode: target path is outside cwd "${cwd ?? 'unknown'}"`,
+      decidedBy: 'mode_dont_ask',
+    };
+  }
+
+  // Read-only / non-file tools: auto-allow
+  return {
+    allowed: true,
+    behavior: 'allow',
+    reason: `Permission mode: dontAsk`,
+    decidedBy: 'mode_dont_ask',
+  };
+}
+
+/** C8: Mode plan — read-only, deterministic non-interactive. */
+function checkPlanMode(
+  toolName: string,
+  _args: Record<string, unknown>,
+): DecisionResult | null {
+  // All write/mutate tools blocked
+  const writeTools = [
+    'write_file', 'edit_file', 'Write', 'Edit', 'replace_in_file',
+    'shell_exec', 'Bash',
+  ];
+  if (writeTools.includes(toolName)) {
+    return {
+      allowed: false,
+      behavior: 'deny',
+      reason: `Tool "${toolName}" blocked in plan mode: write/mutate operations not allowed (read-only mode)`,
+      decidedBy: 'mode_plan',
+    };
+  }
+
+  // Read/search/plan tools allowed
+  return {
+    allowed: true,
+    behavior: 'allow',
+    reason: `Permission mode: plan (read-only)`,
+    decidedBy: 'mode_plan',
   };
 }
 
