@@ -490,8 +490,12 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
       return;
     }
 
-    // Execute tools
+    // Execute tools (2.4: timeout + failure tracking)
+    const TOOL_TIMEOUT_MS = 120_000; // 120s default
     const toolResults: Message[] = [];
+    let consecutiveToolFailures = 0;
+    const lastToolErrors = new Map<string, string>(); // toolName → last error message
+
     for (const tc of response.tool_calls) {
       yield { type: 'tool_call', turn: state.turnCount, id: tc.id, name: tc.function.name, arguments: tc.function.arguments };
 
@@ -572,8 +576,47 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
       }
 
       // REQ-014b: pass agent loop cwd to tools (NOT process.cwd())
-      const resultContent = await executeTool(tc.function.name, args, { cwd: options.cwd });
-      const isError = resultContent.includes('"error"');
+      // 2.4: Tool execution timeout protection (default 120s)
+      let resultContent: string;
+      let isError = false;
+      try {
+        const toolPromise = executeTool(tc.function.name, args, { cwd: options.cwd });
+        const timeoutPromise = new Promise<string>((_, reject) =>
+          setTimeout(() => reject(new Error(`Tool "${tc.function.name}" execution timeout (${TOOL_TIMEOUT_MS / 1000}s)`)), TOOL_TIMEOUT_MS),
+        );
+        resultContent = await Promise.race([toolPromise, timeoutPromise]);
+        isError = resultContent.includes('"error"');
+      } catch (execErr) {
+        const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
+        resultContent = JSON.stringify({ error: errMsg });
+        isError = true;
+        // 2.4: Timeout or exception yields tool_blocked
+        yield {
+          type: 'tool_blocked',
+          turn: state.turnCount,
+          tool_name: tc.function.name,
+          reason: errMsg,
+        };
+      }
+
+      // 2.4: Failure tracking — consecutive failures + repeat error detection
+      if (isError) {
+        consecutiveToolFailures++;
+        const prevError = lastToolErrors.get(tc.function.name);
+        const currentError = resultContent.slice(0, 200);
+        if (prevError && prevError === currentError) {
+          yield {
+            type: 'tool_blocked',
+            turn: state.turnCount,
+            tool_name: tc.function.name,
+            reason: `Repeated identical failure for tool "${tc.function.name}" — possible loop`,
+          };
+        }
+        lastToolErrors.set(tc.function.name, currentError);
+      } else {
+        consecutiveToolFailures = 0;
+        lastToolErrors.delete(tc.function.name);
+      }
 
       yield {
         type: 'tool_result',
@@ -588,6 +631,19 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
         tool_call_id: tc.id,
         content: resultContent,
       });
+    }
+
+    // 2.4: Consecutive failure loop breaker — 3 failures → abort
+    if (consecutiveToolFailures >= 3) {
+      yield {
+        type: 'tool_blocked',
+        turn: state.turnCount,
+        tool_name: '(system)',
+        reason: `${consecutiveToolFailures} consecutive tool failures — aborting task`,
+      };
+      yield { type: 'error', message: `${consecutiveToolFailures} consecutive tool failures — aborting` };
+      yield { type: 'loop_end', reason: 'error', usageSummary: accumulator.summary() };
+      return;
     }
 
     // Spread-replace: push tool results + increment turn
