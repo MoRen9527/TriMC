@@ -20,8 +20,10 @@ export interface PermissionEngineOptions {
   mode?: PermissionMode;
   /** Permission rules (flat list — engine sorts by source priority) */
   rules?: PermissionRule[];
-  /** Current working directory for acceptEdits mode path restriction */
+  /** Current working directory for acceptEdits/dontAsk mode path restriction */
   cwd?: string;
+  /** C9: Additional directories to treat as within-boundary (e.g., sibling repos) */
+  additionalDirectories?: string[];
 }
 
 // ── PermissionEngine ──
@@ -30,11 +32,13 @@ export class PermissionEngine {
   private mode: PermissionMode;
   private rules: PermissionRule[];
   private cwd?: string;
+  private additionalDirectories: string[];
 
   constructor(options: PermissionEngineOptions = {}) {
     this.mode = options.mode ?? 'default';
     this.rules = options.rules ?? [];
     this.cwd = options.cwd;
+    this.additionalDirectories = options.additionalDirectories ?? [];
   }
 
   /** Set current permission mode. */
@@ -47,7 +51,7 @@ export class PermissionEngine {
     return this.mode;
   }
 
-  /** Set working directory (for acceptEdits mode). */
+  /** Set working directory (for acceptEdits/dontAsk mode). */
   setCwd(cwd: string): void {
     this.cwd = cwd;
   }
@@ -55,6 +59,16 @@ export class PermissionEngine {
   /** Get working directory. */
   getCwd(): string | undefined {
     return this.cwd;
+  }
+
+  /** C9: Set additional directories for boundary checks. */
+  setAdditionalDirectories(dirs: string[]): void {
+    this.additionalDirectories = dirs;
+  }
+
+  /** C9: Get additional directories. */
+  getAdditionalDirectories(): string[] {
+    return [...this.additionalDirectories];
   }
 
   /** Add a single permission rule. */
@@ -86,7 +100,9 @@ export class PermissionEngine {
    * @returns DecisionResult with allowed/behavior/reason
    */
   decide(toolName: string, args: Record<string, unknown>): DecisionResult {
-    return runDecisionPipeline(toolName, args, this.mode, this.rules, this.cwd);
+    return runDecisionPipeline(
+      toolName, args, this.mode, this.rules, this.cwd, this.additionalDirectories,
+    );
   }
 
   /**

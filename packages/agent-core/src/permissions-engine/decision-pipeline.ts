@@ -45,6 +45,7 @@ export function runDecisionPipeline(
   mode: PermissionMode,
   rules: PermissionRule[],
   cwd?: string,
+  additionalDirectories?: string[],
 ): DecisionResult {
   // Pre-sort rules by source priority
   const sorted = sortRulesByPriority(rules);
@@ -108,9 +109,10 @@ export function runDecisionPipeline(
   }
 
   // ── Step 6: Mode — dontAsk (C8) ──
-  // Non-interactive, cwd-scoped. Auto-allow within cwd; deny shell + outside-cwd writes.
+  // Non-interactive, cwd-scoped. Auto-allow within cwd/additionalDirs;
+  // deny shell + outside-boundary file tools.
   if (mode === 'dontAsk') {
-    const dontAskResult = checkDontAskMode(toolName, args, cwd);
+    const dontAskResult = checkDontAskMode(toolName, args, cwd, additionalDirectories);
     if (dontAskResult) return dontAskResult;
   }
 
@@ -123,7 +125,7 @@ export function runDecisionPipeline(
 
   // ── Step 8: Mode — acceptEdits ──
   if (mode === 'acceptEdits') {
-    const editResult = checkAcceptEditsMode(toolName, args, cwd);
+    const editResult = checkAcceptEditsMode(toolName, args, cwd, additionalDirectories);
     if (editResult) return editResult;
   }
 
@@ -193,15 +195,35 @@ function checkAskRules(
   return null;
 }
 
-/** Check mode: acceptEdits — restrict writes to cwd. */
+/** C9: Normalize a path for case-insensitive boundary comparison (Windows-safe). */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/').toLowerCase();
+}
+
+/** C9: Check if a tool's file target is within the allowed boundary (cwd + additionalDirs). */
+function isPathInBoundary(
+  filePath: string,
+  cwd: string,
+  additionalDirectories?: string[],
+): boolean {
+  const normalizedTarget = normalizePath(filePath);
+  const absoluteTarget = normalizedTarget.startsWith('/') || /^[a-z]:/i.test(normalizedTarget)
+    ? normalizedTarget
+    : `${normalizePath(cwd)}/${normalizedTarget}`;
+
+  const boundaries = [normalizePath(cwd), ...(additionalDirectories ?? []).map(normalizePath)];
+  return boundaries.some((b) => absoluteTarget.startsWith(b));
+}
+
+/** Check mode: acceptEdits — restrict writes to cwd + additionalDirs. */
 function checkAcceptEditsMode(
   toolName: string,
   args: Record<string, unknown>,
   cwd?: string,
+  additionalDirectories?: string[],
 ): DecisionResult | null {
   const fileWriteTools = ['write_file', 'edit_file'];
   if (!fileWriteTools.includes(toolName)) {
-    // Read-only tools allowed in acceptEdits mode
     return {
       allowed: true,
       behavior: 'allow',
@@ -210,43 +232,34 @@ function checkAcceptEditsMode(
     };
   }
 
-  // For write tools, check if target path is within cwd
   if (cwd) {
     const filePath = extractFilePath(args);
-    if (filePath) {
-      const normalizedCwd = cwd.toLowerCase().replace(/\\/g, '/');
-      const normalizedPath = filePath.toLowerCase().replace(/\\/g, '/');
-      const absolutePath = normalizedPath.startsWith('/') || /^[a-z]:/i.test(normalizedPath)
-        ? normalizedPath
-        : `${normalizedCwd}/${normalizedPath}`;
-
-      if (absolutePath.startsWith(normalizedCwd)) {
-        return {
-          allowed: true,
-          behavior: 'allow',
-          reason: `Permission mode: acceptEdits (write tool "${toolName}" within cwd)`,
-          decidedBy: 'mode_accept_edits',
-        };
-      }
+    if (filePath && isPathInBoundary(filePath, cwd, additionalDirectories)) {
+      return {
+        allowed: true,
+        behavior: 'allow',
+        reason: `Permission mode: acceptEdits (write tool "${toolName}" within boundary)`,
+        decidedBy: 'mode_accept_edits',
+      };
     }
   }
 
-  // Write tool outside cwd — deny in acceptEdits mode
   return {
     allowed: false,
     behavior: 'deny',
-    reason: `Tool "${toolName}" blocked in acceptEdits mode: target path is outside cwd "${cwd ?? 'unknown'}"`,
+    reason: `Tool "${toolName}" blocked in acceptEdits mode: target path is outside boundary (cwd: "${cwd ?? 'unknown'}")`,
     decidedBy: 'mode_accept_edits',
   };
 }
 
-/** C8: Mode dontAsk — cwd-scoped auto-allow, deterministic non-interactive. */
+/** C8/C9: Mode dontAsk — cwd-scoped auto-allow, deterministic non-interactive. */
 function checkDontAskMode(
   toolName: string,
   args: Record<string, unknown>,
   cwd?: string,
+  additionalDirectories?: string[],
 ): DecisionResult | null {
-  // Shell tools always blocked in dontAsk mode — no boundary guarantee possible
+  // Shell tools always blocked — no boundary guarantee possible
   const shellTools = ['shell_exec', 'Bash'];
   if (shellTools.includes(toolName)) {
     return {
@@ -257,36 +270,32 @@ function checkDontAskMode(
     };
   }
 
-  // Write tools: allowed only within cwd
-  const fileWriteTools = ['write_file', 'edit_file', 'Write', 'Edit', 'replace_in_file'];
-  if (fileWriteTools.includes(toolName) && cwd) {
+  // All file tools (read + write): check boundary
+  const fileTools = [
+    'write_file', 'edit_file', 'Write', 'Edit', 'replace_in_file',
+    'Read', 'Glob', 'Grep', 'LS',
+  ];
+  if (fileTools.includes(toolName) && cwd) {
     const filePath = extractFilePath(args);
     if (filePath) {
-      const normalizedCwd = cwd.toLowerCase().replace(/\\/g, '/');
-      const normalizedPath = filePath.toLowerCase().replace(/\\/g, '/');
-      const absolutePath = normalizedPath.startsWith('/') || /^[a-z]:/i.test(normalizedPath)
-        ? normalizedPath
-        : `${normalizedCwd}/${normalizedPath}`;
-
-      if (absolutePath.startsWith(normalizedCwd)) {
+      if (isPathInBoundary(filePath, cwd, additionalDirectories)) {
         return {
           allowed: true,
           behavior: 'allow',
-          reason: `Permission mode: dontAsk (tool "${toolName}" within cwd)`,
+          reason: `Permission mode: dontAsk (tool "${toolName}" within boundary)`,
           decidedBy: 'mode_dont_ask',
         };
       }
+      return {
+        allowed: false,
+        behavior: 'deny',
+        reason: `Tool "${toolName}" blocked in dontAsk mode: target path is outside boundary (cwd: "${cwd}")`,
+        decidedBy: 'mode_dont_ask',
+      };
     }
-    // Write tool outside cwd → deny
-    return {
-      allowed: false,
-      behavior: 'deny',
-      reason: `Tool "${toolName}" blocked in dontAsk mode: target path is outside cwd "${cwd ?? 'unknown'}"`,
-      decidedBy: 'mode_dont_ask',
-    };
   }
 
-  // Read-only / non-file tools: auto-allow
+  // Non-file tools (TaskCreate, SendMessage, etc.): auto-allow
   return {
     allowed: true,
     behavior: 'allow',

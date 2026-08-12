@@ -133,8 +133,10 @@ export interface DecisionContext {
   toolName: string;
   /** Serialized tool arguments string (for content substring matching) */
   toolArgs: Record<string, unknown>;
-  /** Current working directory (for acceptEdits mode path checking) */
+  /** Current working directory (for acceptEdits/dontAsk mode path checking) */
   cwd?: string;
+  /** C9: Additional directories to treat as within-boundary for acceptEdits/dontAsk */
+  additionalDirectories?: string[];
 }
 
 // ── Safety Check Types ──
