@@ -306,6 +306,41 @@ export function createTriMCApp(env: TriMCEnv) {
           return;
         }
 
+        // ── 2.1/2.2: POST /internal/v1/tasks/result ──
+        // TriLC callback: task completed or failed, update TaskController.
+        if (req.url === '/internal/v1/tasks/result' && req.method === 'POST') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) chunks.push(chunk);
+          let body: { taskId?: string; sessionId?: string; status?: string; result?: string; error?: string };
+          try {
+            body = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+          } catch {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'invalid_json' }));
+            return;
+          }
+
+          // Match by taskId (from dispatch) or sessionId (TriLC internal)
+          const lookupId = body.taskId ?? body.sessionId;
+          if (!lookupId) {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'taskId or sessionId required' }));
+            return;
+          }
+
+          if (body.status === 'success') {
+            taskController.completeTask(lookupId, body.result ?? '');
+            console.log(`[trimc:task] result received: task=${lookupId} status=success`);
+          } else {
+            taskController.failTask(lookupId, body.error ?? 'task_error');
+            console.log(`[trimc:task] result received: task=${lookupId} status=failed error=${body.error ?? 'unknown'}`);
+          }
+
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, taskId: lookupId }));
+          return;
+        }
+
         if (req.url === '/internal/v1/tasks' && req.method === 'POST') {
           res.writeHead(202, { 'content-type': 'application/json' });
           res.end(JSON.stringify(taskController.acceptPlaceholder()));
