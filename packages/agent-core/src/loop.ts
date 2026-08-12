@@ -126,6 +126,8 @@ export interface AgentLoopOptions {
   permissionRules?: PermissionRule[];
   /** Pre-configured PermissionEngine instance (overrides permissionMode/permissionRules). */
   permissionEngine?: PermissionEngine;
+  /** C9: Additional directories to treat as within-boundary for acceptEdits/dontAsk. */
+  additionalDirectories?: string[];
   /**
    * Interactive permission callback (P3, additive).
    * Invoked ONLY when the decision pipeline returns behavior 'ask'
@@ -332,6 +334,7 @@ export async function* agentLoop(options: AgentLoopOptions): AsyncGenerator<Agen
       mode: options.permissionMode ?? 'bypassPermissions',
       rules: options.permissionRules ?? [],
       cwd: options.cwd,
+      additionalDirectories: options.additionalDirectories ?? [],
     });
 
   // Tier tool counts for loop_start
