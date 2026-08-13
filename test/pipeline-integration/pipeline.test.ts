@@ -360,11 +360,11 @@ describe('Pipeline: Tool Gater with contract tools', () => {
     assert.ok(r.reason?.includes('approval_required'), `Expected approval_required in reason, got: ${r.reason}`);
   });
 
-  it('subagent tier blocks write_file (main-only)', () => {
+  it('subagent tier blocks write_file (heartbeat+)', () => {
     const r = checkToolPermission('write_file', 'subagent', toolSpecs);
-    // write_file requires main tier; subagent cannot use it.
+    // write_file requires heartbeat+ tier (REQ-20260805-006); subagent cannot use it.
     assert.equal(r.allowed, false);
-    assert.ok(r.reason?.includes('requires tier "main" or higher'));
+    assert.ok(r.reason?.includes('requires tier "heartbeat" or higher'));
   });
 
   it('summarizeGater categorizes by risk level', () => {
@@ -459,8 +459,8 @@ describe('Pipeline: Full assembly → AgentLoopOptions', () => {
 
     const writeFilePerm = p.toolPermissions.find(tp => tp.name === 'write_file');
     assert.ok(writeFilePerm);
-    assert.equal(writeFilePerm.allowed, false, 'write_file blocked at subagent tier (requires main)');
-    assert.ok(writeFilePerm.reason?.includes('requires tier "main" or higher'));
+    assert.equal(writeFilePerm.allowed, false, 'write_file blocked at subagent tier (requires heartbeat)');
+    assert.ok(writeFilePerm.reason?.includes('requires tier "heartbeat" or higher'));
 
     const shellExecPerm = p.toolPermissions.find(tp => tp.name === 'shell_exec');
     assert.ok(shellExecPerm);
