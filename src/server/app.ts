@@ -25,6 +25,10 @@ export function createTriMCApp(env: TriMCEnv) {
   const modelClient = createModelClient();
   let server: Server | null = null;
 
+  // 心跳超时扫描定时器（heartbeat-dualrun-contract v1.0 §3.3）：
+  // 每 10s 扫节点心跳表，超阈值（30s 常规 / 180s degraded）→ markNodeUnknown
+  let heartbeatScanTimer: ReturnType<typeof setInterval> | null = null;
+
   // ── M1 Phase-2: Session Bridge（编排层 ↔ 官方 claude 会话）──
   const bridgeOptions: SessionBridgeOptions = {
     runAsUser: env.runAsUser,
@@ -490,6 +494,11 @@ export function createTriMCApp(env: TriMCEnv) {
             res.end(JSON.stringify({ error: 'invalid_json' }));
             return;
           }
+          // 心跳登记（heartbeat-dualrun-contract v1.0 §3.3）：
+          // 合法心跳 → 节点心跳表登记（2 次回归 known 由 recordNodeHeartbeat 处理）
+          if (hb.nodeId) {
+            mirrorStore.recordNodeHeartbeat(hb.nodeId, hb.state ?? 'unknown-state');
+          }
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(
             JSON.stringify({
@@ -581,11 +590,21 @@ export function createTriMCApp(env: TriMCEnv) {
       }
 
       console.log(`[trimc] listening on :${env.port}`);
+
+      // 心跳超时扫描：10s 周期（与 heartbeatIntervalMs 对齐）
+      heartbeatScanTimer = setInterval(() => {
+        mirrorStore.scanStaleNodes();
+      }, 10_000);
+      heartbeatScanTimer.unref?.();
     },
     get port(): number {
       return env.port;
     },
     async stop(): Promise<void> {
+      if (heartbeatScanTimer) {
+        clearInterval(heartbeatScanTimer);
+        heartbeatScanTimer = null;
+      }
       if (server) {
         await new Promise<void>((resolve, reject) => {
           server!.close((err) => (err ? reject(err) : resolve()));

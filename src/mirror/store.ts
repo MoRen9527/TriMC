@@ -20,9 +20,80 @@ function buildKey(nodeId: string, taskId: string): string {
   return `${nodeId}:${taskId}`;
 }
 
+/** 节点心跳登记（heartbeat-dualrun-contract v1.0 §3.1/3.2） */
+export interface NodeHeartbeatRecord {
+  lastSeenAt: number;      // epoch ms
+  state: string;           // 心跳 payload state（connected/degraded/local）
+  consecutiveHbs: number;  // 连续心跳计数（回归 known 判定）
+  unknown: boolean;        // 当前是否被标 unknown
+}
+
 export class MirrorStore {
   private tasks = new Map<string, MirrorTask>();  // key = `${nodeId}:${taskId}`
+  private nodeHeartbeats = new Map<string, NodeHeartbeatRecord>();
   private versionCounter = 0;
+
+  /**
+   * 登记节点心跳（heartbeat 端点调用）。
+   * 节点此前 unknown 且连续 2 次心跳 → 回归 known（契约 3.3，与 TriLC recoverThreshold=2 对称）。
+   * @param now 时钟注入（测试用，默认 Date.now()）
+   */
+  recordNodeHeartbeat(nodeId: string, state: string, now = Date.now()): void {
+    const existing = this.nodeHeartbeats.get(nodeId);
+    if (!existing) {
+      this.nodeHeartbeats.set(nodeId, {
+        lastSeenAt: now,
+        state,
+        consecutiveHbs: 1,
+        unknown: false,
+      });
+      return;
+    }
+    existing.lastSeenAt = now;
+    existing.state = state;
+    existing.consecutiveHbs = Math.min(existing.consecutiveHbs + 1, 100);
+    if (existing.unknown && existing.consecutiveHbs >= 2) {
+      existing.unknown = false;
+      existing.consecutiveHbs = 0;  // 回归后重置，避免溢出
+      console.log(`[trimc:mirror] node recovered (2 heartbeats): ${nodeId}`);
+    }
+  }
+
+  /** 读取节点心跳记录（测试/诊断用）。 */
+  getNodeHeartbeat(nodeId: string): NodeHeartbeatRecord | undefined {
+    return this.nodeHeartbeats.get(nodeId);
+  }
+
+  /** 节点心跳表大小（测试/诊断用）。 */
+  get heartbeatCount(): number {
+    return this.nodeHeartbeats.size;
+  }
+
+  /**
+   * 扫描心跳表，超阈值节点 → markNodeUnknown。
+   * 双阈值（契约 3.2）：state=degraded 节点用 180s 宽松阈值（覆盖 60s 慢心跳 ×3 防误判），
+   * 其余 30s（3×interval，与 TriLC failThreshold=3 对称）。
+   * @returns 本次被标 unknown 的节点数
+   */
+  scanStaleNodes(
+    staleMs = 30_000,
+    degradedStaleMs = 180_000,
+    now = Date.now(),
+  ): number {
+    let marked = 0;
+    for (const [nodeId, hb] of this.nodeHeartbeats) {
+      if (hb.unknown) continue;
+      const threshold = hb.state === 'degraded' ? degradedStaleMs : staleMs;
+      if (now - hb.lastSeenAt > threshold) {
+        this.markNodeUnknown(nodeId);
+        hb.unknown = true;
+        hb.consecutiveHbs = 0;
+        marked++;
+        console.warn(`[trimc:mirror] node stale → unknown: ${nodeId} (state=${hb.state}, lastSeen=${now - hb.lastSeenAt}ms ago)`);
+      }
+    }
+    return marked;
+  }
 
   /**
    * 写入/更新一批镜像任务。
