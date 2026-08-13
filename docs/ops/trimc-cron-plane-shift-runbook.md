@@ -66,6 +66,8 @@ npx tsx src/cli.ts cron run <jobId>
 npx tsx src/cli.ts cron log --job-id <jobId> # 审计
 ```
 
+**job ID 口径**：消息/命令里引用 job 必须用 `trimc cron list` 输出的**完整 UUID**（36 位，如现役周迁移 job `b00b0070-2f82-4e7d-a98c-de73e886834b`），截断形式（如 b00b0070-2f82-4e7d-a98）查不到 job、排查时才暴露是口径坑（编排层演练实证）。
+
 写路径前置验证（fleet 身份，r1-2 P4 实测通过）：`/home/fleet` 存在（command-handler HOME 覆盖有效）、
 `.git` 递归 fleet 属主后 `git add` 可写 index、`git diff --cached --quiet` no-op 幂等。
 
@@ -91,6 +93,21 @@ cd D:/Code/ai/TriMetaverse && git pull sg-server dev
 | fleet push 报 fatal: detected dubious ownership（exit 128） | safe.directory 未登记：`runuser -u fleet -- git config --global --add safe.directory /srv/git/TriMetaverse.git`（B1，一次性） |
 | fleet push 报 Permission denied 写 loose 对象 | 裸仓 loose 目录缺 g+w：`find /srv/git/TriMetaverse.git/objects -maxdepth 1 -type d -not -perm -g=w -exec chmod g+w {} +`（B2） |
 | fleet git add/commit 报 index 不可写 | .git 属主复发：`chown -R fleet:fleet /srv/fleet/TriMetaverse/.git`（R1，root pull 后常态） |
+
+### 演练回退（真根演练无痕回退三件套，编排层演练实证可用）
+
+```bash
+# ① 裸仓回退：把 ref 指回演练前 commit
+git --git-dir=/srv/git/TriMetaverse.git update-ref refs/heads/dev <演练前commit>
+
+# ② 舰队克隆回退：硬重置 + 清理
+git -C /srv/fleet/TriMetaverse reset --hard <演练前commit> && git -C /srv/fleet/TriMetaverse clean -fd docs/workflow/operating-records
+
+# ③ job 运行态复位：编辑 /var/lib/trimc/cron/jobs.json，把 runCount 置 0、
+#    state 各时间戳置 null（lastRunAtMs/lastRunStatus/lastError 等），restart trimc
+```
+
+> 演练产生了文件与 job 状态，回退后按 §2.3 chown .git（reset 可能重建 root 属主文件）。
 
 ## 6. 运行维护
 
