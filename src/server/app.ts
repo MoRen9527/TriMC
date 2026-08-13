@@ -1,5 +1,11 @@
 ﻿import { createServer, type Server } from 'node:http';
+import * as path from 'node:path';
 import type { TriMCEnv } from '../config/env.js';
+import {
+  createCronService,
+  createCronRouteHandler,
+  type CronService,
+} from '../cron/index.js';
 import { TaskController } from '../task-controller/controller.js';
 import { createModelClient, type Message } from 'trimodel';
 import { agentLoop } from '../agent-loop/loop.js';
@@ -35,6 +41,17 @@ export function createTriMCApp(env: TriMCEnv) {
     cwd: env.bridgeCwd,
   };
 
+  // ── Cron scheduler（cron 域，r1-2）──
+  // 日志目录默认与 agent-core job-store 同根：$TRIMC_CONFIG_DIR/cron/logs。
+  const cronService: CronService | null = env.cronEnabled
+    ? createCronService({
+        logDir:
+          env.cronLogDir ??
+          path.join(process.env.TRIMC_CONFIG_DIR ?? path.resolve('data'), 'cron', 'logs'),
+      })
+    : null;
+  const handleCronRoutes = cronService ? createCronRouteHandler(cronService) : null;
+
   /** 最近一次注册表快照（ListAgents 采集结果） */
   let registrySnapshot: AgentSession[] = [];
 
@@ -67,8 +84,29 @@ export function createTriMCApp(env: TriMCEnv) {
     async start(): Promise<void> {
       server = createServer(async (req, res) => {
         if (req.url === '/healthz') {
+          // cron 块对齐 TriLC app.ts healthz：{enabled, jobCount, degraded, consecutiveFailures}
+          // （enabled = service running；字段名与 TriLC healthz 一致）
+          const cronStatus = cronService ? await cronService.getStatus() : null;
           res.writeHead(200, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, service: 'trimc' }));
+          res.end(
+            JSON.stringify({
+              ok: true,
+              service: 'trimc',
+              cron: cronStatus
+                ? {
+                    enabled: cronStatus.running,
+                    jobCount: cronStatus.jobCount,
+                    degraded: cronStatus.degraded,
+                    consecutiveFailures: cronStatus.consecutiveFailures,
+                  }
+                : {
+                    enabled: false,
+                    jobCount: 0,
+                    degraded: false,
+                    consecutiveFailures: 0,
+                  },
+            }),
+          );
           return;
         }
 
@@ -511,6 +549,16 @@ export function createTriMCApp(env: TriMCEnv) {
           return;
         }
 
+        // ── /internal/v1/cron/* ──
+        // cron 路由（r1-2）：add/list/update/remove/run/log/status，委托 src/cron/routes.ts
+        if (
+          handleCronRoutes &&
+          req.url?.startsWith('/internal/v1/cron') &&
+          (await handleCronRoutes(req, res))
+        ) {
+          return;
+        }
+
         // ── POST /internal/v1/events/replay ──
         // Offline event replay from TriLC nodes. CTO-008-M §3.3.2.
         // M.5: Conflict arbitration integrated — arbitrate() detects double-assignment etc.
@@ -591,6 +639,9 @@ export function createTriMCApp(env: TriMCEnv) {
 
       console.log(`[trimc] listening on :${env.port}`);
 
+      // Cron scheduler：server listen 后装配（stale-run 恢复 + 调度循环）
+      await cronService?.start();
+
       // 心跳超时扫描：10s 周期（与 heartbeatIntervalMs 对齐）
       heartbeatScanTimer = setInterval(() => {
         mirrorStore.scanStaleNodes();
@@ -601,6 +652,7 @@ export function createTriMCApp(env: TriMCEnv) {
       return env.port;
     },
     async stop(): Promise<void> {
+      cronService?.stop();
       if (heartbeatScanTimer) {
         clearInterval(heartbeatScanTimer);
         heartbeatScanTimer = null;

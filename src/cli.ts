@@ -1,0 +1,358 @@
+#!/usr/bin/env node
+/**
+ * trimc CLI — cron 子命令（行为对标 trilc cron CLI：add/list/update/remove/run/log/status）。
+ *
+ * 服务地址默认 http://127.0.0.1:8710（TRIMC_URL 可覆盖）。
+ * `trimc cron add --plane-shift` 一键安装周平面迁移五段链 job（r1-1 方案 §5.1 模板）。
+ */
+
+import type { CronJobPatch } from '@tricompany/agent-core';
+
+// ── service address ─────────────────────────────────────────────
+
+function serviceUrl(): string {
+  return process.env.TRIMC_URL ?? 'http://127.0.0.1:8710';
+}
+
+// ── HTTP client ─────────────────────────────────────────────────
+
+async function cronRequest(method: string, path: string, body?: unknown): Promise<unknown> {
+  const url = `${serviceUrl()}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: { 'content-type': 'application/json' },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`ERROR: cannot reach trimc server at ${serviceUrl()} (${msg})`);
+    process.exit(1);
+  }
+  const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!res.ok) {
+    const err =
+      json && typeof json.error === 'string' ? json.error : `HTTP ${res.status}`;
+    const detail = json && typeof json.message === 'string' ? `: ${json.message}` : '';
+    throw new Error(`${err}${detail}`);
+  }
+  return json;
+}
+
+// ── plane-shift preset ──────────────────────────────────────────
+
+/**
+ * r1-1 方案 §5.1 命令模板 + §6.2 预设参数。
+ * Token {fromWeek}/{toWeek}/{startDate} 由服务器端 command-handler 替换。
+ */
+const PLANE_SHIFT_PRESET = {
+  name: 'weekly-plane-shift',
+  schedule: { kind: 'cron' as const, cron: '0 23 * * 0', timezone: 'Asia/Singapore' },
+  payload: {
+    command: [
+      'cd /srv/fleet/TriCompany && python3 -m runtime.cognition.weekly_plane_shift \\',
+      '  --from {fromWeek} --to {toWeek} --start-date {startDate} \\',
+      '  --operating-root /srv/fleet/TriMetaverse/docs/workflow/operating-records --sync \\',
+      '&& cd /srv/fleet/TriMetaverse \\',
+      '&& git add docs/workflow/operating-records \\',
+      '&& (git diff --cached --quiet || git -c user.name="TriMC Scheduler" -c user.email="trimc@tri.company" \\',
+      '     commit -m "ops: weekly plane shift {fromWeek}->{toWeek} (TriMC scheduler)") \\',
+      '&& git push /srv/git/TriMetaverse.git HEAD:dev',
+    ].join('\n'),
+    cwd: '/srv/fleet',
+    runAs: 'fleet',
+  },
+};
+
+// ── subcommands ─────────────────────────────────────────────────
+
+type Args = string[];
+
+function requireValue(args: Args, i: number, flag: string): string {
+  const value = args[i + 1];
+  if (!value) {
+    console.error(`ERROR: ${flag} requires a value.`);
+    process.exit(1);
+  }
+  return value;
+}
+
+async function cmdAdd(args: Args): Promise<void> {
+  let name = '';
+  let schedule: Record<string, unknown> | null = null;
+  let command = '';
+  let cwd = '';
+  let runAs: string | undefined;
+  let timeoutMs: number | undefined;
+  let enabled = true;
+  let planeShift = false;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--plane-shift') {
+      planeShift = true;
+    } else if (args[i] === '--name') {
+      name = requireValue(args, i, '--name');
+      i++;
+    } else if (args[i] === '--cron') {
+      schedule = { kind: 'cron', cron: requireValue(args, i, '--cron') };
+      i++;
+    } else if (args[i] === '--tz') {
+      const tz = requireValue(args, i, '--tz');
+      if (schedule && schedule.kind === 'cron') schedule.timezone = tz;
+      i++;
+    } else if (args[i] === '--every') {
+      const everyMs = parseInt(requireValue(args, i, '--every'), 10);
+      if (!Number.isFinite(everyMs) || everyMs <= 0) {
+        console.error('ERROR: --every requires a positive integer (ms).');
+        process.exit(1);
+      }
+      schedule = { kind: 'every', everyMs };
+      i++;
+    } else if (args[i] === '--command') {
+      command = requireValue(args, i, '--command');
+      i++;
+    } else if (args[i] === '--cwd') {
+      cwd = requireValue(args, i, '--cwd');
+      i++;
+    } else if (args[i] === '--run-as') {
+      runAs = requireValue(args, i, '--run-as');
+      i++;
+    } else if (args[i] === '--timeout') {
+      timeoutMs = parseInt(requireValue(args, i, '--timeout'), 10);
+      i++;
+    } else if (args[i] === '--disabled') {
+      enabled = false;
+    } else if (!args[i].startsWith('-') && !name) {
+      name = args[i];
+    }
+  }
+
+  // Preset path
+  if (planeShift) {
+    name = name || PLANE_SHIFT_PRESET.name;
+    schedule = { ...PLANE_SHIFT_PRESET.schedule };
+    command = command || PLANE_SHIFT_PRESET.payload.command;
+    cwd = cwd || PLANE_SHIFT_PRESET.payload.cwd;
+    runAs = runAs ?? PLANE_SHIFT_PRESET.payload.runAs;
+  }
+
+  if (!name) {
+    console.error('ERROR: name is required (--name <name> or positional).');
+    process.exit(1);
+  }
+  if (!schedule) {
+    console.error(
+      'ERROR: schedule is required (--cron "<expr>" [--tz <tz>], --every <ms>, or --plane-shift).',
+    );
+    process.exit(1);
+  }
+  if (!command || !cwd) {
+    console.error('ERROR: --command and --cwd are required (or use --plane-shift).');
+    process.exit(1);
+  }
+
+  const payload: Record<string, unknown> = { command, cwd };
+  if (runAs) payload.runAs = runAs;
+  if (timeoutMs) payload.timeoutMs = timeoutMs;
+
+  const result = await cronRequest('POST', '/internal/v1/cron/jobs', {
+    name,
+    schedule,
+    payload,
+    enabled,
+  });
+  const job = (result as Record<string, unknown>).job;
+  console.log('[OK] job created:', JSON.stringify(job, null, 2));
+}
+
+async function cmdList(): Promise<void> {
+  const result = (await cronRequest('GET', '/internal/v1/cron/jobs')) as {
+    jobs: Array<Record<string, unknown>>;
+    count: number;
+  };
+  if (result.jobs.length === 0) {
+    console.log('No cron jobs.');
+    return;
+  }
+  console.log(`\n${'ID'.padEnd(24)} ${'NAME'.padEnd(24)} ${'SCHEDULE'.padEnd(26)} ${'STATE'.padEnd(10)} ${'LAST RUN'}`);
+  console.log('-'.repeat(104));
+  for (const j of result.jobs) {
+    const schedule = j.schedule as Record<string, unknown>;
+    const scheduleStr =
+      schedule.kind === 'every'
+        ? `every ${schedule.everyMs}ms`
+        : schedule.kind === 'at'
+          ? `at ${schedule.atMs}`
+          : `${schedule.cron}${schedule.timezone ? ` (${schedule.timezone})` : ''}`;
+    const state = j.state as Record<string, unknown>;
+    const stateStr = state.runningAtMs !== null ? 'running' : j.enabled === false ? 'disabled' : 'idle';
+    const lastRunStr = state.lastRunAtMs ? new Date(state.lastRunAtMs as number).toISOString().slice(0, 19) : '-';
+    console.log(
+      `${String(j.id).slice(0, 22).padEnd(24)} ${String(j.name).slice(0, 22).padEnd(24)} ${String(scheduleStr).slice(0, 24).padEnd(26)} ${stateStr.padEnd(10)} ${lastRunStr}`,
+    );
+  }
+  console.log(`\n${result.count} job(s)`);
+}
+
+async function cmdRun(args: Args): Promise<void> {
+  const jobId = args[0];
+  if (!jobId) {
+    console.error('ERROR: job ID required. Usage: trimc cron run <id> [--force]');
+    process.exit(1);
+  }
+  const force = args.includes('--force');
+  const result = await cronRequest('POST', `/internal/v1/cron/jobs/${encodeURIComponent(jobId)}/run`, { force });
+  console.log('[OK] run result:', JSON.stringify(result, null, 2));
+}
+
+async function cmdLog(args: Args): Promise<void> {
+  let jobId: string | undefined;
+  let limit = 20;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--job-id') {
+      jobId = requireValue(args, i, '--job-id');
+      i++;
+    } else if (args[i] === '--limit') {
+      limit = parseInt(requireValue(args, i, '--limit'), 10);
+      i++;
+    }
+  }
+  const query = new URLSearchParams();
+  if (jobId) query.set('jobId', jobId);
+  query.set('limit', String(limit));
+  const result = (await cronRequest('GET', `/internal/v1/cron/log?${query}`)) as {
+    logs: Array<Record<string, unknown>>;
+    count: number;
+  };
+  if (result.logs.length === 0) {
+    console.log('No execution logs.');
+    return;
+  }
+  for (const l of result.logs) {
+    console.log(
+      `${l.startedAt}  ${String(l.jobId).slice(0, 8)}…  ${l.status}  ${l.durationMs ?? '?'}ms${l.errorMessage ? `\n    error: ${l.errorMessage}` : ''}`,
+    );
+  }
+  console.log(`\n${result.count} log(s)`);
+}
+
+async function cmdStatus(): Promise<void> {
+  const result = (await cronRequest('GET', '/internal/v1/cron/status')) as {
+    status: Record<string, unknown>;
+  };
+  console.log(JSON.stringify(result.status, null, 2));
+}
+
+async function cmdUpdate(args: Args): Promise<void> {
+  const jobId = args[0];
+  if (!jobId) {
+    console.error(
+      'ERROR: job ID required. Usage: trimc cron update <id> [--enable|--disable] [--name <n>] [--cron <expr>] [--every <ms>]',
+    );
+    process.exit(1);
+  }
+  const patch: CronJobPatch = {};
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === '--enable') {
+      patch.enabled = true;
+    } else if (args[i] === '--disable') {
+      patch.enabled = false;
+    } else if (args[i] === '--name') {
+      patch.name = requireValue(args, i, '--name');
+      i++;
+    } else if (args[i] === '--cron') {
+      patch.schedule = { kind: 'cron', cron: requireValue(args, i, '--cron') };
+      i++;
+    } else if (args[i] === '--every') {
+      const everyMs = parseInt(requireValue(args, i, '--every'), 10);
+      if (!Number.isFinite(everyMs) || everyMs <= 0) {
+        console.error('ERROR: --every requires a positive integer (ms).');
+        process.exit(1);
+      }
+      patch.schedule = { kind: 'every', everyMs };
+      i++;
+    }
+  }
+  if (Object.keys(patch).length === 0) {
+    console.error('ERROR: no patch fields. Use --enable, --disable, --name, --cron, or --every.');
+    process.exit(1);
+  }
+  const result = await cronRequest('PATCH', `/internal/v1/cron/jobs/${encodeURIComponent(jobId)}`, patch);
+  console.log('[OK] job updated:', JSON.stringify((result as Record<string, unknown>).job, null, 2));
+}
+
+async function cmdRemove(args: Args): Promise<void> {
+  const jobId = args[0];
+  if (!jobId) {
+    console.error('ERROR: job ID required. Usage: trimc cron remove <id>');
+    process.exit(1);
+  }
+  await cronRequest('DELETE', `/internal/v1/cron/jobs/${encodeURIComponent(jobId)}`);
+  console.log('[OK] job removed.');
+}
+
+// ── dispatch ────────────────────────────────────────────────────
+
+const USAGE = `Usage: trimc cron <add|list|run|log|status|update|remove>
+
+  add    --name <n> --cron "<expr>" [--tz <tz>] --command <cmd> --cwd <dir>
+         [--run-as <user>] [--timeout <ms>] [--disabled]
+         | --plane-shift            (install the weekly plane shift job preset)
+  list
+  run    <id> [--force]
+  log    [--job-id <id>] [--limit <n>]
+  status
+  update <id> [--enable|--disable] [--name <n>] [--cron <expr>] [--every <ms>]
+  remove <id>`;
+
+async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  if (argv.length === 0 || (argv[0] === 'cron' && argv.length === 1)) {
+    console.log(USAGE);
+    return;
+  }
+  if (argv[0] !== 'cron') {
+    console.error(`ERROR: unknown command "${argv[0]}".`);
+    console.error(USAGE);
+    process.exit(1);
+  }
+
+  const subcommand = argv[1];
+  const args = argv.slice(2);
+  try {
+    switch (subcommand) {
+      case 'add':
+        await cmdAdd(args);
+        break;
+      case 'list':
+        await cmdList();
+        break;
+      case 'run':
+        await cmdRun(args);
+        break;
+      case 'log':
+        await cmdLog(args);
+        break;
+      case 'status':
+        await cmdStatus();
+        break;
+      case 'update':
+        await cmdUpdate(args);
+        break;
+      case 'remove':
+        await cmdRemove(args);
+        break;
+      default:
+        console.error(`ERROR: unknown cron subcommand: ${subcommand}`);
+        console.error(USAGE);
+        process.exit(1);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`ERROR: ${msg}`);
+    process.exit(1);
+  }
+}
+
+void main();

@@ -11,6 +11,10 @@ export type TriMCEnv = {
   runAsUser?: string;
   /** M1 Phase-2: claude 会话工作目录（默认 /srv/fleet） */
   bridgeCwd: string;
+  /** cron scheduler 开关（TRIMC_CRON_ENABLED !== 'false' 时启用） */
+  cronEnabled: boolean;
+  /** cron per-run 日志目录（TRIMC_CRON_LOG_DIR）；不设则由 cron service 落 TRIMC_CONFIG_DIR/cron/logs */
+  cronLogDir?: string;
 };
 
 export function readEnv(): TriMCEnv {
@@ -23,5 +27,7 @@ export function readEnv(): TriMCEnv {
     memdirPath: process.env.TRIMC_MEMDIR || undefined,
     runAsUser: process.env.TRIMC_RUNAS || undefined,
     bridgeCwd: process.env.TRIMC_BRIDGE_CWD ?? '/srv/fleet',
+    cronEnabled: process.env.TRIMC_CRON_ENABLED !== 'false',
+    cronLogDir: process.env.TRIMC_CRON_LOG_DIR || undefined,
   };
 }
