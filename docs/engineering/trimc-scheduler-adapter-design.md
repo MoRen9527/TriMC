@@ -129,10 +129,11 @@ cd /srv/fleet/TriCompany && python3.11 -m runtime.cognition.weekly_plane_shift \
 | # | 项 | 要点 |
 | --- | --- | --- |
 | 1 | 裸仓写权限 | `/srv/git/TriMetaverse.git` 现为 root:root；fleet 需写权：`chgrp fleet` + `g+w`（推荐，fleet 单主体）；备选 push 段 root 执行 |
-| 2 | Python 兼容性 | 服务器 Python 3.6.8；先实测 `cd /srv/fleet/TriCompany && python3 -m runtime.cognition.weekly_plane_shift --help`；不兼容 → dnf 装 python3.11 或专用 venv，命令模板同步改解释器路径 |
+| 2 | Python 兼容性（三级预案，CTO 2026-08-13 预裁决） | 静态判断确认：五段链 `from __future__ import annotations`（3.7+）在服务器 Python 3.6.8 必 SyntaxError。影响面已实测：服务器自定义 python3 消费方仅 `/usr/local/sbin/squid-allowlist-sync`；dnf module 有 python38 可并行安装（不动系统 python3.6）。依赖面已核：五段链 import 链纯 stdlib（`__init__.py` 仅 docstring，ecdsa 不在链上），零 pip 依赖。**定案倾向 A'**：`dnf module install python38`（不 enable 默认流）→ 模板解释器改显式 `python3.8` → dry-run 门禁 `python3.8 -m runtime.cognition.weekly_plane_shift --help` + 测试根 dry 链通过即定案。**备选 C**：docker python:3.12-alpine 挂载 /srv/fleet 跑 python 段（docker.service 已是 trimc 依赖）。**否决倾向 B**：回移 3.6 语法触碰 TriCompany 共享 runtime，双端回归面最大，与「零改动复用」定案相悖 |
 | 3 | agent-core 链 | `/srv/fleet/TriMC/node_modules/@tricompany/agent-core` 可解析且有 dist（M0 有同模式先例） |
 | 4 | fleet git 身份 | `-c` 内联身份，不依赖 fleet 全局 config |
 | 5 | TRIMC_CONFIG_DIR | `/var/lib/trimc` 建目录 + 环境注入 |
+| 6 | Node engines 对齐 | 服务器 Node v18.20.8 实测；package.json engines 下调 `>=18.20.0`（TriMC 已在 18 上跑通 M1-M3，tsx>=18.18 满足；tsconfig ES2022 目标 Node 18 完整支持）。新代码 API 面限制 Node 18：禁 `import.meta.dirname`（20.11+）、`fs.glob`（22+）、`node:sqlite`、`Array.prototype.toSorted/toSpliced/toReversed/with`（20+）、`process.loadEnvFile`；`@types/node ^24` 只是编译期类型面，不代表运行时可用。agent-core scheduler 从未在服务器实例化过，P4 smoke 首次实战，暴露问题走共享 core 缺口升级通道 |
 
 ---
 
@@ -185,7 +186,8 @@ cd /srv/fleet/TriCompany && python3.11 -m runtime.cognition.weekly_plane_shift \
 
 | 风险 | 等级 | 缓解 |
 | --- | --- | --- |
-| 服务器 Python 3.6.8 与 runtime.cognition 不兼容 | 高 | checklist #2 先行实测；不兼容装 python3.11 / venv |
+| 服务器 Python 3.6.8 与 runtime.cognition 不兼容 | 高 | checklist #2 三级预案：A' 并行装 python38（定案倾向）→ C 容器 python → B 否决倾向；dry-run 门禁先行实测 |
+| 服务器 Node 18 < engines 20 声明性债务 | 中 | checklist #6：engines 下调 >=18.20.0 + 新代码 Node 18 API 面把关 |
 | 裸仓写权限 | 中 | checklist #1 一次性调整 |
 | agent-core 链服务器不可解析 | 中 | checklist #3 部署时复核 |
 | 崩溃残留 runningAtMs 卡死 job | 中 | 适配器 start() 重置 |
