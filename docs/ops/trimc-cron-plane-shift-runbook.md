@@ -28,10 +28,10 @@ trimc.service（root，tsx 直跑）
 ## 2. 部署步骤（代码版本更新）
 
 1. 本地 push sg-server（编排层执行；收口复核 `git ls-remote`）
-2. 服务器：`cd /srv/fleet/TriMC && git pull`（**执行身份 root**——root pull 会把 TriMC 工作区新文件写成 root 属主；fleet 只消费 TriCompany/TriMetaverse 两仓，TriMC 仓属主 root 无碍；也可 `runuser -u fleet` pull 保持 fleet 单主体，二选一记录在案）
-3. **TriMetaverse 仓 .git 属主修正（每次 pull 后必跑）**：root pull 会在 .git 产生 root 属主新文件（index/refs/objects），fleet 无法写 index/refs：
+2. 服务器：`cd /srv/fleet/TriMC && git pull`（执行身份二选一：**root**——TriMC 工作区新文件写成 root 属主无碍（fleet 不消费 TriMC 仓）；**`runuser -u fleet`**——保持 fleet 单主体。推荐后者，二选一记录在案）
+3. **TriMetaverse 仓 .git 属主修正（每次 pull 后必跑，与 pull 身份无关）**：root pull 会在 .git 产生 root 属主新文件（index/refs/objects），fleet 无法写 index/refs；fleet pull 则新文件自然属 fleet 无需 chown——无论哪种身份 pull，跑一遍即可：
    `chown -R fleet:fleet /srv/fleet/TriMetaverse/.git`
-   （r1-2 P4 实测：首次 838 个 root 文件；r1-3 复查 26 个复发——属常态，入部署步骤）
+   （r1-2 P4 实测：首次 838 个 root 文件；r1-3 复查 26 个复发；r1-3 自验时再次捕获编排层 root pull 产生的 10 个新 root 文件——复发属常态，入部署步骤）
 4. **裸仓 loose 目录 g+w（每次 push 后检查）**：git push 新建的 loose 对象目录不带组写，fleet 下次 push 会概率失败：
    `find /srv/git/TriMetaverse.git/objects -maxdepth 1 -type d -not -perm -g=w -exec chmod g+w {} +`
    （r1-3 实测 5 个锁定目录：03/79/7c/3a/90，修复后 push 通道验证 exit 0）
@@ -94,7 +94,19 @@ cd D:/Code/ai/TriMetaverse && git pull sg-server dev
 
 ## 6. 运行维护
 
-- **run log 轮转**：per-run 日志（`/var/lib/trimc/cron/logs/`）随 runCount 增长无自动清理；周迁移 job 每周 1 条量级很小，暂不需 logrotate；若新增高频 job，按文件 mtime 定期清理旧日志（保留 90 天）或接 logrotate，当前不做（登记跟进项）。
+- **per-run 日志轮转**：`/var/lib/trimc/cron/logs/` 随 runCount 增长无自动清理；周迁移 job 每周 1 条量级很小，暂不需 logrotate；若新增高频 job，按文件 mtime 定期清理旧日志（保留 90 天）或接 logrotate，当前不做（登记跟进项）。
+- **/tmp/trimc-run.log 轮转（O2 观察项）**：trimc-start.sh 将服务控制台输出重定向到 `/tmp/trimc-run.log`（无轮转，含 cron 审计回显）。处置：在 `/etc/logrotate.d/trimc` 加轮转规则：
+  ```
+  /tmp/trimc-run.log {
+      daily
+      rotate 7
+      missingok
+      notifempty
+      copytruncate
+      compress
+  }
+  ```
+  执行一次 `logrotate -f /etc/logrotate.d/trimc` 验证规则有效。
 - **jobs.json 备份**：store 原子写自带 `.bak`（同目录 `jobs.json.bak`），备份保留最近一次；手工改 store 前先 `cp jobs.json jobs.json.manual-bak`。
 
 ## 7. 约束与纪律
