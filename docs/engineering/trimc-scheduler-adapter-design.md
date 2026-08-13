@@ -115,7 +115,7 @@ cd /srv/fleet/TriCompany && python3.8 -m runtime.cognition.weekly_plane_shift \
 > - 门禁通过：`python3.8 --help` + 测试根 dry 链（5 步执行 exit 0）+ 真实根 dry 链（create pass / migrate fail 为 dry 未写预期 / carry_over would-write）；
 > - 命令模板解释器固定 `python3.8`（另装 python3.11 备用，模板不使用）。
 
-- `--sync` 是唯一写开关（脚本默认 dry-run）；五段链全确定性，退出码 0/1；产出 `.shift-ade.json` 并投递邮件通知（脚本内建，非阻塞）。
+- `--sync` 是唯一写开关：默认 dry-run 不写文件、不投递通知；正式触发（--sync）真实写文件并投递邮件通知（O1 已关闭——notify 真实配通、演练二期实证投递，非 render_only 空转）。五段链全确定性，退出码 0/1；产出 `.shift-ade.json` 进新周目录。
 - 推裸仓走本地路径（同主机，无网络、无凭证），`HEAD:dev` 对齐裸仓 HEAD=dev。
 
 ### 5.2 git 链路与边界
