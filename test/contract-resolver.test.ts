@@ -4,7 +4,8 @@
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { loadContract, resolveContracts } from '../src/contracts/resolver.js';
 import type { AgentContract } from '../src/contracts/agent-contract.js';
 
@@ -104,13 +105,31 @@ describe('Contract Resolver — resolveContracts over source-agents (14 v3)', ()
   });
 
   it('rejects v1-shaped contracts (negative path: no compat branch)', () => {
-    const legacyDir = resolve('..', 'TriCompany', 'docs', 'registry');
-    const { contracts, errors } = resolveContracts(legacyDir);
-    // v1 形状全部被 v3 schema 拒绝：零加载 + 全部进 errors
-    assert.equal(contracts.length, 0);
-    assert.ok(errors.length >= 11, `expected >= 11 rejections, got ${errors.length}`);
-    for (const e of errors) {
-      assert.match(e.message, /unsupported contract version|schema validation failed/, e.path);
+    // v1 合同已退役（r13-2 Step 5），用自建 fixture 验证负路径
+    const legacyDir = mkdtempSync(join(resolve('..', 'TriMC'), '.tmp-v1-neg-'));
+    writeFileSync(
+      join(legacyDir, 'Legacy.contract.yaml'),
+      [
+        'contract:',
+        "  version: '1.0'",
+        '  agent_id: Legacy',
+        'identity:',
+        '  display_name: Legacy',
+        '  role: Legacy',
+        '  description: legacy',
+      ].join('\n'),
+      'utf-8',
+    );
+    try {
+      const { contracts, errors } = resolveContracts(legacyDir);
+      // v1 形状被 v3 schema 拒绝：零加载 + 错误信息含版本或校验失败
+      assert.equal(contracts.length, 0);
+      assert.ok(errors.length >= 1, `expected >= 1 rejection, got ${errors.length}`);
+      for (const e of errors) {
+        assert.match(e.message, /unsupported contract version|schema validation failed/, e.path);
+      }
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
     }
   });
 });
