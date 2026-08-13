@@ -99,7 +99,7 @@ TriCompany/packages/agent-core/src/scheduler/
 ### 5.1 命令模板（payload.command）
 
 ```bash
-cd /srv/fleet/TriCompany && python3.11 -m runtime.cognition.weekly_plane_shift \
+cd /srv/fleet/TriCompany && python3.8 -m runtime.cognition.weekly_plane_shift \
   --from {fromWeek} --to {toWeek} --start-date {startDate} \
   --operating-root /srv/fleet/TriMetaverse/docs/workflow/operating-records --sync \
 && cd /srv/fleet/TriMetaverse \
@@ -109,11 +109,11 @@ cd /srv/fleet/TriCompany && python3.11 -m runtime.cognition.weekly_plane_shift \
 && git push /srv/git/TriMetaverse.git HEAD:dev
 ```
 
-> r1-2 checklist #2 实测（2026-08-13）：服务器系统 Python 3.6.8 报
-> `SyntaxError: future feature annotations is not defined`，**不兼容**；
-> 已 `dnf install python3.11`（3.11.13，alinux3-updates），五段链
-> python3.11 下 dry-run 全链可执行（dry 各段 fail 均为"未写"预期）。
-> 命令模板解释器固定 `python3.11`。
+> r1-2 checklist #2 实测定案（2026-08-13，预案 A'）：
+> - 服务器系统 Python 3.6.8 实测 `SyntaxError: future feature annotations is not defined`，不兼容（预案静态判断证实）；
+> - `dnf module install python38`（3.8.17，alinux3-module）完成，系统 python3.6 未动；
+> - 门禁通过：`python3.8 --help` + 测试根 dry 链（5 步执行 exit 0）+ 真实根 dry 链（create pass / migrate fail 为 dry 未写预期 / carry_over would-write）；
+> - 命令模板解释器固定 `python3.8`（另装 python3.11 备用，模板不使用）。
 
 - `--sync` 是唯一写开关（脚本默认 dry-run）；五段链全确定性，退出码 0/1；产出 `.shift-ade.json` 并投递邮件通知（脚本内建，非阻塞）。
 - 推裸仓走本地路径（同主机，无网络、无凭证），`HEAD:dev` 对齐裸仓 HEAD=dev。

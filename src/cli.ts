@@ -51,9 +51,10 @@ const PLANE_SHIFT_PRESET = {
   schedule: { kind: 'cron' as const, cron: '0 23 * * 0', timezone: 'Asia/Singapore' },
   payload: {
     command: [
-      // python3.11 强制指定：服务器系统 Python 3.6.8 不支持
-      // `from __future__ import annotations`（r1-2 checklist #2 实测结论）。
-      'cd /srv/fleet/TriCompany && python3.11 -m runtime.cognition.weekly_plane_shift \\',
+      // python3.8 显式指定：服务器系统 Python 3.6.8 不支持
+      // `from __future__ import annotations`（r1-2 checklist #2 实测，
+      // 按 CTO 三级预案定案 A'：dnf module install python38）。
+      'cd /srv/fleet/TriCompany && python3.8 -m runtime.cognition.weekly_plane_shift \\',
       '  --from {fromWeek} --to {toWeek} --start-date {startDate} \\',
       '  --operating-root /srv/fleet/TriMetaverse/docs/workflow/operating-records --sync \\',
       '&& cd /srv/fleet/TriMetaverse \\',
