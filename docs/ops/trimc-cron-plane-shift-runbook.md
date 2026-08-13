@@ -29,10 +29,16 @@ trimc.service（root，tsx 直跑）
 
 1. 本地 push sg-server（编排层执行；收口复核 `git ls-remote`）
 2. 服务器：`cd /srv/fleet/TriMC && git pull`（**执行身份 root**——root pull 会把 TriMC 工作区新文件写成 root 属主；fleet 只消费 TriCompany/TriMetaverse 两仓，TriMC 仓属主 root 无碍；也可 `runuser -u fleet` pull 保持 fleet 单主体，二选一记录在案）
-3. **TriMetaverse 仓 .git 属主修正**（root pull 后新对象为 root 属主，fleet 无法写 index/refs）：
-   `chown -R fleet:fleet /srv/fleet/TriMetaverse/.git`（r1-2 P4 实测：曾发现 838 个 root 属主文件阻断 fleet git 段）
-4. `systemctl restart trimc`
-5. 验证：`curl -s http://127.0.0.1:8710/healthz | grep -o '"cron":{[^}]*}'`
+3. **TriMetaverse 仓 .git 属主修正（每次 pull 后必跑）**：root pull 会在 .git 产生 root 属主新文件（index/refs/objects），fleet 无法写 index/refs：
+   `chown -R fleet:fleet /srv/fleet/TriMetaverse/.git`
+   （r1-2 P4 实测：首次 838 个 root 文件；r1-3 复查 26 个复发——属常态，入部署步骤）
+4. **裸仓 loose 目录 g+w（每次 push 后检查）**：git push 新建的 loose 对象目录不带组写，fleet 下次 push 会概率失败：
+   `find /srv/git/TriMetaverse.git/objects -maxdepth 1 -type d -not -perm -g=w -exec chmod g+w {} +`
+   （r1-3 实测 5 个锁定目录：03/79/7c/3a/90，修复后 push 通道验证 exit 0）
+5. **fleet safe.directory（一次性）**：git 2.43.7 对非属主裸仓目录拒绝 push（exit 128，模板 `-c` 内联无效已实证），必须全局登记：
+   `runuser -u fleet -- git config --global --add safe.directory /srv/git/TriMetaverse.git`
+6. `systemctl restart trimc`
+7. 验证：`curl -s http://127.0.0.1:8710/healthz | grep -o '"cron":{[^}]*}'`
 
 ## 3. 装周平面迁移 job（首次/重装）
 
@@ -82,8 +88,16 @@ cd D:/Code/ai/TriMetaverse && git pull sg-server dev
 | consecutiveFailures ≥ 3（degraded） | `trimc cron log` 查错误尾部；修复后 `trimc cron run <id>` 重跑（幂等） |
 | 五段链失败 | 脚本幂等：create already_exists 不失败、carry_over 目标存在即 skip；修正后直接重跑 |
 | 周平面文件被误改 | 本地 pull 回流后 diff 审查；写方向单主体（服务器只写 operating-records/） |
+| fleet push 报 fatal: detected dubious ownership（exit 128） | safe.directory 未登记：`runuser -u fleet -- git config --global --add safe.directory /srv/git/TriMetaverse.git`（B1，一次性） |
+| fleet push 报 Permission denied 写 loose 对象 | 裸仓 loose 目录缺 g+w：`find /srv/git/TriMetaverse.git/objects -maxdepth 1 -type d -not -perm -g=w -exec chmod g+w {} +`（B2） |
+| fleet git add/commit 报 index 不可写 | .git 属主复发：`chown -R fleet:fleet /srv/fleet/TriMetaverse/.git`（R1，root pull 后常态） |
 
-## 6. 约束与纪律
+## 6. 运行维护
+
+- **run log 轮转**：per-run 日志（`/var/lib/trimc/cron/logs/`）随 runCount 增长无自动清理；周迁移 job 每周 1 条量级很小，暂不需 logrotate；若新增高频 job，按文件 mtime 定期清理旧日志（保留 90 天）或接 logrotate，当前不做（登记跟进项）。
+- **jobs.json 备份**：store 原子写自带 `.bak`（同目录 `jobs.json.bak`），备份保留最近一次；手工改 store 前先 `cp jobs.json jobs.json.manual-bak`。
+
+## 7. 约束与纪律
 
 - 代码修改一律本地发起（本地 → 裸仓 → 舰队克隆）；服务器只写周平面文件（生产级开发期 §三方向例外）
 - 迁移窗口单实例：runningAtMs 守卫 + 单 systemd 实例
