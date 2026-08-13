@@ -11,15 +11,22 @@ import type { EmployeeRecord } from '../../src/orchestration/types.js';
 
 const CTO_YAML = `
 contract:
-  version: '1.0'
+  version: '3.0'
   type: agent-contract
   agent_id: ChiefTechnologyOfficer
+  family: Role
 identity:
   display_name: 小狄
-  family: Role
   role: CTO
   description: CTO of TriCompany
   user_invocable: true
+paths:
+  soul: cto/soul.agent.md
+  agent_body: cto/agent-body.agent.md
+  agent_frontmatter: cto/agent-frontmatter.agent.md
+  memory: cto/memory.agent.md
+  colleagues: cto/colleagues.agent.md
+  social: cto/social.agent.md
 responsibilities:
   - description: code-delivery
     priority: high
@@ -62,15 +69,22 @@ io_contract:
 
 const CPO_YAML = `
 contract:
-  version: '1.0'
+  version: '3.0'
   type: agent-contract
   agent_id: ChiefProductOfficer
+  family: Role
 identity:
   display_name: 小乔
-  family: Role
   role: CPO
   description: CPO of TriCompany
   user_invocable: true
+paths:
+  soul: cpo/soul.agent.md
+  agent_body: cpo/agent-body.agent.md
+  agent_frontmatter: cpo/agent-frontmatter.agent.md
+  memory: cpo/memory.agent.md
+  colleagues: cpo/colleagues.agent.md
+  social: cpo/social.agent.md
 responsibilities:
   - description: product-scope
     priority: high
@@ -103,9 +117,10 @@ io_contract:
 
 const BROKEN_YAML = `
 contract:
-  version: '1.0'
+  version: '3.0'
   type: agent-contract
   agent_id: Broken
+  family: Role
 # intentionally broken — missing required fields
 `;
 
@@ -177,5 +192,25 @@ describe('Employee Registry — loadEmployeeRegistry', () => {
   // cleanup runs after all subtests
   after(() => {
     if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+// ── r13-2 Step 4: 真实 source-agents 14 员工实载（registryDir 改指 v3 真源） ──
+
+describe('Employee Registry — source-agents v3 (14 employees)', () => {
+  const SOURCE_AGENTS = resolve('..', 'TriCompany', 'source-agents');
+
+  it('loads 14 employees from the v3 contract source', () => {
+    const result = loadEmployeeRegistry(SOURCE_AGENTS);
+
+    assert.strictEqual(result.employees.length, 14, `expected 14, got ${result.employees.length}`);
+    assert.strictEqual(result.errors.length, 0, `unexpected errors: ${result.errors.map((e) => e.path).join(', ')}`);
+
+    // 3 份缺口员工（r13-2 Step 2 新写）必须在列
+    for (const id of ['business-strategy', 'customer-success-officer', 'deployment-engineer']) {
+      const emp = result.employees.find((e: EmployeeRecord) => e.employeeId === id);
+      assert.ok(emp, `gap employee missing: ${id}`);
+      assert.strictEqual(emp!.status.state, 'active', `${id} should be active`);
+    }
   });
 });

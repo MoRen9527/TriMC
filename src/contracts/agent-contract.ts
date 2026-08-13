@@ -61,11 +61,8 @@ export interface IOContract {
 
 // ── Full Contract ──
 
-/** Runtime baseline item — from runtime_baseline YAML field */
-export interface RuntimeBaselineItem {
-  name: string;
-  description: string;
-}
+/** Runtime baseline — v3 对象形状（spec §2.4 裁决），host/tri_mc_status/tri_mc_migration_ready 等键 */
+export type RuntimeBaseline = Record<string, unknown>;
 
 export interface AgentContract {
   agent_id: string;
@@ -79,5 +76,5 @@ export interface AgentContract {
   /** Prose behavioral instructions not captured by structured fields */
   instructions?: string;
   /** Runtime environment baseline (e.g. TriMC) */
-  runtime_baseline?: RuntimeBaselineItem[];
+  runtime_baseline?: RuntimeBaseline;
 }

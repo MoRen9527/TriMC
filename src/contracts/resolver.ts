@@ -1,220 +1,77 @@
-// ── Agent Contract Resolver ──
-// TriMC v0.2.0: Parses .contract.yaml files into typed AgentContract objects
-// Validates all six Schema v1 elements are present
+// ── Agent Contract Resolver (thin adapter) ──
+// r13-2 Step 4: 解析与校验统一走 @tricompany/agent-core loadContractV3（v3.0 权威 schema），
+// 本域保留 v1 兼容形状投影（消费方零改动）与目录遍历。
+// thin adapter 边界见 TriCompany/docs/engineering/agent-contract-v3-spec.md §四。
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readdirSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { parse as parseYaml } from 'yaml';
-import type {
-  AgentContract,
-  AgentFamily,
-  DecisionRights,
-  IOContract,
-  RuntimeBaselineItem,
-  ToolRiskLevel,
-  ToolSpec
-} from './agent-contract.js';
+import {
+  loadContractV3,
+  ContractV3Error,
+  type AgentContractV3,
+  type ContractToolSpec,
+} from '@tricompany/agent-core';
+import type { AgentContract, ToolRiskLevel } from './agent-contract.js';
 
-// ── YAML Raw Shape (pre-validation) ──
+// ── Domain Projection (v3 → v1 兼容形状) ──
 
-interface ContractYamlRaw {
-  contract: { version: string; type: string; agent_id: string };
-  identity: {
-    display_name: string;
-    family: string;
-    role: string;
-    description: string;
-    user_invocable?: boolean;
-  };
-  responsibilities: { description?: string; priority?: string }[] | string[];
-  decision_rights: {
-    approve?: string[];
-    freeze?: string[];
-    escalate?: string[];
-    forbidden?: string[];
-  };
-  collaborators: {
-    reports_to: string;
-    peers?: string[];
-    supervises?: string[];
-  };
-  tools?: {
-    name: string;
-    scope?: string[];
-    risk_level?: string;
-    requires_approval?: boolean;
-    runtime_equivalent?: string;
-  }[];
-  io_contract: {
-    inputs?: { type: string; description: string; source?: string }[];
-    outputs?: { type: string; description: string; source?: string }[];
-  };
-  instructions?: string;
-  runtime_baseline?: { name: string; description: string }[];
-}
-
-// ── Validation ──
-
-const VALID_FAMILIES: readonly string[] = ['Role', 'Registry'];
-const VALID_RISK_LEVELS: readonly string[] = ['low', 'medium', 'high', 'critical'];
-const VALID_PRIORITIES: readonly string[] = ['high', 'medium', 'low'];
-
-class ContractValidationError extends Error {
-  constructor(
-    message: string,
-    public agentId: string
-  ) {
-    super(`[ContractResolver] ${agentId}: ${message}`);
-    this.name = 'ContractValidationError';
-  }
-}
-
-function validateFamily(value: string, agentId: string): AgentFamily {
-  if (!VALID_FAMILIES.includes(value)) {
-    throw new ContractValidationError(
-      `identity.family must be one of [${VALID_FAMILIES.join(', ')}], got "${value}"`,
-      agentId
-    );
-  }
-  return value as AgentFamily;
-}
-
-function validateRiskLevel(value: string | undefined, agentId: string, toolName: string): ToolRiskLevel {
-  if (!value || !VALID_RISK_LEVELS.includes(value)) {
-    throw new ContractValidationError(
-      `tool "${toolName}" risk_level must be one of [${VALID_RISK_LEVELS.join(', ')}], got "${value}"`,
-      agentId
-    );
-  }
-  return value as ToolRiskLevel;
-}
-
-function validateRequiredFields(raw: ContractYamlRaw): void {
-  const id = raw.contract?.agent_id ?? 'unknown';
-
-  if (!raw.contract?.version) throw new ContractValidationError('contract.version is required', id);
-  if (!raw.contract?.agent_id) throw new ContractValidationError('contract.agent_id is required', id);
-  if (!raw.identity?.display_name) throw new ContractValidationError('identity.display_name is required', id);
-  if (!raw.identity?.family) throw new ContractValidationError('identity.family is required', id);
-  if (!raw.identity?.role) throw new ContractValidationError('identity.role is required', id);
-  if (!raw.identity?.description) throw new ContractValidationError('identity.description is required', id);
-  if (!raw.responsibilities || (Array.isArray(raw.responsibilities) && raw.responsibilities.length === 0)) {
-    throw new ContractValidationError('responsibilities must be a non-empty array', id);
-  }
-  if (!raw.decision_rights) throw new ContractValidationError('decision_rights is required', id);
-  if (!raw.collaborators?.reports_to) throw new ContractValidationError('collaborators.reports_to is required', id);
-  if (!raw.io_contract) throw new ContractValidationError('io_contract is required', id);
-  if (!raw.io_contract.inputs || raw.io_contract.inputs.length === 0) {
-    throw new ContractValidationError('io_contract.inputs must be a non-empty array', id);
-  }
-  if (!raw.io_contract.outputs || raw.io_contract.outputs.length === 0) {
-    throw new ContractValidationError('io_contract.outputs must be a non-empty array', id);
-  }
-}
-
-function normalizeResponsibilities(
-  raw: (string | { description?: string; priority?: string })[]
-): { description: string; priority?: 'high' | 'medium' | 'low' }[] {
-  return raw.map((item) => {
-    if (typeof item === 'string') {
-      return { description: item };
-    }
-    const priority = item.priority && VALID_PRIORITIES.includes(item.priority)
-      ? (item.priority as 'high' | 'medium' | 'low')
-      : undefined;
-    return { description: item.description ?? '', priority };
-  });
-}
-
-function normalizeTools(rawTools: ContractYamlRaw['tools'], agentId: string): ToolSpec[] {
-  if (!rawTools || rawTools.length === 0) return [];
-  return rawTools.map((t) => ({
+function projectTools(raw: ContractToolSpec[]): AgentContract['tools'] {
+  return raw.map((t) => ({
     name: t.name,
-    scope: t.scope ?? [],
-    risk_level: validateRiskLevel(t.risk_level, agentId, t.name),
-    requires_approval: t.requires_approval ?? false,
-    runtime_equivalent: t.runtime_equivalent ?? ''
+    scope: t.scope,
+    risk_level: t.risk_level as ToolRiskLevel,
+    requires_approval: t.requires_approval,
+    runtime_equivalent: t.runtime_equivalent,
   }));
+}
+
+function toDomain(c: AgentContractV3): AgentContract {
+  return {
+    agent_id: c.contract.agent_id,
+    version: c.contract.version,
+    identity: {
+      display_name: c.identity.display_name,
+      family: c.contract.family,
+      role: c.identity.role,
+      description: c.identity.description,
+      user_invocable: c.identity.user_invocable,
+    },
+    responsibilities: c.responsibilities.map((r) =>
+      typeof r === 'string' ? { description: r } : r,
+    ),
+    decision_rights: {
+      approve: c.decision_rights.approve,
+      freeze: c.decision_rights.freeze,
+      escalate: c.decision_rights.escalate,
+      forbidden: c.decision_rights.forbidden,
+    },
+    collaborators: c.collaborators,
+    tools: projectTools(c.tools),
+    io_contract: c.io_contract,
+    instructions: c.instructions,
+    // v3 对象形状（spec §2.4 裁决）；本域投影为对象，消费方暂无读取方
+    runtime_baseline: c.runtime_baseline,
+  };
 }
 
 // ── Public API ──
 
+export { ContractV3Error as ContractValidationError };
+
 /**
- * Load and parse a .contract.yaml file into a validated AgentContract.
- * Throws ContractValidationError if any Schema v1 element is missing or invalid.
+ * Load and validate a single v3.0 .contract.yaml into the domain shape.
+ * Throws ContractV3Error on any parse/validation failure.
  */
 export function loadContract(contractPath: string): AgentContract {
-  const fullPath = resolve(contractPath);
-
-  let raw: ContractYamlRaw;
-  try {
-    const content = readFileSync(fullPath, 'utf-8');
-    raw = parseYaml(content) as ContractYamlRaw;
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new ContractValidationError(`failed to read or parse YAML: ${message}`, contractPath);
-  }
-
-  const id = raw.contract?.agent_id ?? 'unknown';
-  validateRequiredFields(raw);
-  validateFamily(raw.identity.family, id);
-
-  const decisionRights: DecisionRights = {
-    approve: raw.decision_rights.approve ?? [],
-    freeze: raw.decision_rights.freeze ?? [],
-    escalate: raw.decision_rights.escalate ?? [],
-    forbidden: raw.decision_rights.forbidden ?? []
-  };
-
-  const tools = normalizeTools(raw.tools, id);
-
-  const ioContract: IOContract = {
-    inputs: (raw.io_contract.inputs ?? []).map((i) => ({
-      type: i.type,
-      description: i.description,
-      source: i.source
-    })),
-    outputs: (raw.io_contract.outputs ?? []).map((o) => ({
-      type: o.type,
-      description: o.description,
-      source: o.source
-    }))
-  };
-
-  const instructions: string | undefined = raw.instructions;
-  const runtimeBaseline: RuntimeBaselineItem[] | undefined = raw.runtime_baseline?.map((b) => ({
-    name: b.name,
-    description: b.description
-  }));
-
-  return {
-    agent_id: id,
-    version: raw.contract.version,
-    identity: {
-      display_name: raw.identity.display_name,
-      family: validateFamily(raw.identity.family, id),
-      role: raw.identity.role,
-      description: raw.identity.description,
-      user_invocable: raw.identity.user_invocable ?? true
-    },
-    responsibilities: normalizeResponsibilities(raw.responsibilities),
-    decision_rights: decisionRights,
-    collaborators: {
-      reports_to: raw.collaborators.reports_to,
-      peers: raw.collaborators.peers ?? [],
-      supervises: raw.collaborators.supervises ?? []
-    },
-    tools,
-    io_contract: ioContract,
-    instructions,
-    runtime_baseline: runtimeBaseline
-  };
+  return toDomain(loadContractV3(contractPath));
 }
 
 /**
- * Resolve all contract YAML files from a directory.
- * Scans for *.contract.yaml, parses each, returns successfully loaded contracts.
- * Failed parses are collected and reported — does not throw on individual failures.
+ * Resolve all contracts from a registry dir.
+ * Accepts both layouts:
+ *   - flat:     <dir>/*.contract.yaml（历史 v1 布局）
+ *   - per-agent: <dir>/<agent-dir>/<agent-dir>.contract.yaml（source-agents 布局）
+ * Failed parses are collected into errors — does not throw on individual failures.
  */
 export function resolveContracts(
   registryDir: string
@@ -230,20 +87,26 @@ export function resolveContracts(
   }
 
   for (const entry of entries) {
-    if (!entry.endsWith('.contract.yaml')) continue;
+    if (entry.endsWith('.contract.yaml')) {
+      tryLoad(join(registryDir, entry), entry);
+      continue;
+    }
+    // per-agent layout: <entry>/<entry>.contract.yaml
+    const nestedPath = join(registryDir, entry, `${entry}.contract.yaml`);
+    if (!existsSync(nestedPath)) continue;
+    tryLoad(nestedPath, `${entry}/${entry}.contract.yaml`);
+  }
 
-    const fullPath = join(registryDir, entry);
+  function tryLoad(fullPath: string, label: string): void {
     try {
       contracts.push(loadContract(fullPath));
     } catch (err: unknown) {
       errors.push({
-        path: entry,
-        message: err instanceof Error ? err.message : String(err)
+        path: label,
+        message: err instanceof Error ? err.message : String(err),
       });
     }
   }
 
   return { contracts, errors };
 }
-
-export { ContractValidationError };

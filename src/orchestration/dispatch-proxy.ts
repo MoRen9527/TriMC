@@ -68,7 +68,7 @@ function trace(step: string, success: boolean, message: string): DispatchTraceEn
 // ── Public API ──
 
 export interface DispatchDeps {
-  registryDir: string;               // path to TriCompany/docs/registry/
+  registryDir: string;               // path to TriCompany/source-agents/（v3.0 合同真源，r13-2 起）
   employees?: EmployeeRecord[];      // pre-loaded employees (for testing)
 }
 

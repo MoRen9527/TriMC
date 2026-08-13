@@ -1,6 +1,6 @@
-// ── Contract Resolver Unit Test ──
-// TriMC v0.2.0 D4 exit criteria: parse at least 1 agent contract successfully.
-// Target: ChiefTechnologyOfficer.contract.yaml (CTO 小狄)
+// ── Contract Resolver Unit Test (v3.0) ──
+// r13-2 Step 4: rewritten for v3 schema via agent-core loadContractV3.
+// Target: TriCompany/source-agents/chief-technology-officer (CTO 小狄).
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
@@ -8,22 +8,22 @@ import { resolve } from 'node:path';
 import { loadContract, resolveContracts } from '../src/contracts/resolver.js';
 import type { AgentContract } from '../src/contracts/agent-contract.js';
 
-// Paths relative to TriMC repo root
-const TRI_COMPANY_REGISTRY = resolve('..', 'TriCompany', 'docs', 'registry');
-const CTO_CONTRACT_PATH = resolve(TRI_COMPANY_REGISTRY, 'ChiefTechnologyOfficer.contract.yaml');
+// Paths relative to TriMC repo root (v3 真源 = source-agents)
+const SOURCE_AGENTS = resolve('..', 'TriCompany', 'source-agents');
+const CTO_CONTRACT_PATH = resolve(SOURCE_AGENTS, 'chief-technology-officer', 'chief-technology-officer.contract.yaml');
 
-describe('Contract Resolver — ChiefTechnologyOfficer (CTO 小狄)', () => {
+describe('Contract Resolver — chief-technology-officer v3.0 (CTO 小狄)', () => {
   let cto: AgentContract;
 
   before(() => {
     cto = loadContract(CTO_CONTRACT_PATH);
   });
 
-  // ── Six elements structural validation ──
+  // ── Contract + identity ──
 
   it('parses agent_id and version', () => {
-    assert.strictEqual(cto.agent_id, 'ChiefTechnologyOfficer');
-    assert.ok(cto.version, 'version should be present');
+    assert.strictEqual(cto.agent_id, 'chief-technology-officer');
+    assert.strictEqual(cto.version, '3.0');
   });
 
   describe('Element 1: Identity', () => {
@@ -46,99 +46,71 @@ describe('Contract Resolver — ChiefTechnologyOfficer (CTO 小狄)', () => {
   });
 
   describe('Element 3: Decision Rights', () => {
-    it('has approve list', () => {
+    it('has all four keys', () => {
       assert.ok(cto.decision_rights.approve.length > 0, 'should have at least 1 approve item');
-    });
-
-    it('has escalate list', () => {
-      assert.ok(Array.isArray(cto.decision_rights.escalate), 'escalate should be an array');
-    });
-
-    it('has forbid list', () => {
-      assert.ok(Array.isArray(cto.decision_rights.forbidden), 'forbidden should be an array');
+      assert.ok(cto.decision_rights.escalate.length > 0, 'should have at least 1 escalate item');
+      assert.ok(cto.decision_rights.forbidden.length > 0, 'should have at least 1 forbidden item');
+      assert.ok(Array.isArray(cto.decision_rights.freeze), 'freeze should be an array (v3 four-key)');
     });
   });
 
   describe('Element 4: Collaborators', () => {
-    it('has reports_to', () => {
-      assert.ok(cto.collaborators.reports_to.length > 0);
-    });
-
-    it('has peers array', () => {
-      assert.ok(Array.isArray(cto.collaborators.peers));
-      assert.ok(cto.collaborators.peers.length > 0, 'CTO should have at least 1 peer');
-    });
-
-    it('has supervises array', () => {
-      assert.ok(Array.isArray(cto.collaborators.supervises));
+    it('has reports_to, peers and supervises', () => {
+      assert.ok(cto.collaborators.reports_to.length > 0, 'reports_to should not be empty');
+      assert.ok(Array.isArray(cto.collaborators.peers), 'peers should be an array');
+      assert.ok(Array.isArray(cto.collaborators.supervises), 'supervises should be an array');
     });
   });
 
   describe('Element 5: Tools', () => {
-    it('has at least one tool', () => {
-      assert.ok(cto.tools.length > 0, 'CTO should have tools');
-    });
-
-    it('every tool has a valid risk_level', () => {
+    it('has tools with valid risk_level and runtime_equivalent', () => {
+      assert.ok(cto.tools.length > 0, 'should have at least 1 tool');
       const validLevels = ['low', 'medium', 'high', 'critical'];
-      cto.tools.forEach((tool: { name: string; risk_level: string }) => {
-        assert.ok(
-          validLevels.includes(tool.risk_level),
-          `tool "${tool.name}" risk_level "${tool.risk_level}" must be one of ${validLevels.join(', ')}`
-        );
-      });
-    });
-
-    it('every tool has runtime_equivalent', () => {
-      cto.tools.forEach((tool: { name: string; runtime_equivalent: string }) => {
-        assert.ok(
-          tool.runtime_equivalent.length > 0,
-          `tool "${tool.name}" should have runtime_equivalent mapping`
-        );
+      cto.tools.forEach((t) => {
+        assert.ok(validLevels.includes(t.risk_level), `tool "${t.name}" risk_level invalid`);
+        assert.ok(t.runtime_equivalent.length > 0, `tool "${t.name}" should have runtime_equivalent`);
       });
     });
   });
 
   describe('Element 6: IO Contract', () => {
-    it('has inputs array', () => {
+    it('has inputs and outputs arrays', () => {
       assert.ok(cto.io_contract.inputs.length > 0, 'should have at least 1 input');
-      cto.io_contract.inputs.forEach((input: { type: string; description?: string }) => {
-        assert.ok(input.type.length > 0, 'each input should have a type');
-      });
-    });
-
-    it('has outputs array', () => {
       assert.ok(cto.io_contract.outputs.length > 0, 'should have at least 1 output');
-      cto.io_contract.outputs.forEach((output: { type: string; description?: string }) => {
-        assert.ok(output.type.length > 0, 'each output should have a type');
-      });
     });
   });
-});
 
-describe('Contract Resolver — Batch resolveContracts', () => {
-  it('loads multiple contracts from TriCompany registry', () => {
-    const { contracts, errors } = resolveContracts(TRI_COMPANY_REGISTRY);
-
-    console.log(`Loaded ${contracts.length} contracts from TriCompany registry`);
-    errors.forEach((e: { path: string; message: string }) => console.warn(`  ⚠ Parse error: ${e.path} → ${e.message}`));
-
-    assert.ok(contracts.length >= 3, 'should load at least 3 contracts (CEOChiefOfStaff, CPO, CTO)');
+  it('runtime_baseline is the v3 object shape', () => {
+    assert.ok(cto.runtime_baseline, 'runtime_baseline should be present');
+    assert.equal(typeof cto.runtime_baseline, 'object');
+    assert.equal((cto.runtime_baseline as Record<string, unknown>).host, 'copilot-host');
   });
 });
 
-describe('Contract Resolver — Edge cases', () => {
-  it('throws on non-existent file', () => {
-    assert.throws(
-      () => loadContract(resolve('nonexistent.contract.yaml')),
-      /failed to read or parse YAML/
-    );
+describe('Contract Resolver — resolveContracts over source-agents (14 v3)', () => {
+  it('resolves 14 contracts from the per-agent layout', () => {
+    const { contracts, errors } = resolveContracts(SOURCE_AGENTS);
+    assert.equal(contracts.length, 14, `expected 14, got ${contracts.length}`);
+    assert.equal(errors.length, 0, `unexpected errors: ${errors.map((e) => e.path).join(', ')}`);
   });
 
-  it('throws on empty YAML', () => {
-    assert.throws(
-      () => loadContract(resolve('package.json')),
-      /contract.version is required/
-    );
+  it('all resolved agents have non-empty system-critical fields', () => {
+    const { contracts } = resolveContracts(SOURCE_AGENTS);
+    for (const c of contracts) {
+      assert.ok(c.agent_id.length > 0, 'agent_id empty');
+      assert.ok(c.identity.description.length > 0, `${c.agent_id}: description empty`);
+      assert.ok(c.io_contract.inputs.length > 0, `${c.agent_id}: inputs empty`);
+    }
+  });
+
+  it('rejects v1-shaped contracts (negative path: no compat branch)', () => {
+    const legacyDir = resolve('..', 'TriCompany', 'docs', 'registry');
+    const { contracts, errors } = resolveContracts(legacyDir);
+    // v1 形状全部被 v3 schema 拒绝：零加载 + 全部进 errors
+    assert.equal(contracts.length, 0);
+    assert.ok(errors.length >= 11, `expected >= 11 rejections, got ${errors.length}`);
+    for (const e of errors) {
+      assert.match(e.message, /unsupported contract version|schema validation failed/, e.path);
+    }
   });
 });
