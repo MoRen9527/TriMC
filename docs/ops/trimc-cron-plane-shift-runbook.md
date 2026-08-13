@@ -28,9 +28,11 @@ trimc.service（root，tsx 直跑）
 ## 2. 部署步骤（代码版本更新）
 
 1. 本地 push sg-server（编排层执行；收口复核 `git ls-remote`）
-2. 服务器：`cd /srv/fleet/TriMC && git pull`
-3. `systemctl restart trimc`
-4. 验证：`curl -s http://127.0.0.1:8710/healthz | grep -o '"cron":{[^}]*}'`
+2. 服务器：`cd /srv/fleet/TriMC && git pull`（**执行身份 root**——root pull 会把 TriMC 工作区新文件写成 root 属主；fleet 只消费 TriCompany/TriMetaverse 两仓，TriMC 仓属主 root 无碍；也可 `runuser -u fleet` pull 保持 fleet 单主体，二选一记录在案）
+3. **TriMetaverse 仓 .git 属主修正**（root pull 后新对象为 root 属主，fleet 无法写 index/refs）：
+   `chown -R fleet:fleet /srv/fleet/TriMetaverse/.git`（r1-2 P4 实测：曾发现 838 个 root 属主文件阻断 fleet git 段）
+4. `systemctl restart trimc`
+5. 验证：`curl -s http://127.0.0.1:8710/healthz | grep -o '"cron":{[^}]*}'`
 
 ## 3. 装周平面迁移 job（首次/重装）
 
@@ -49,12 +51,17 @@ cd /srv/fleet/TriCompany && python3.8 -m runtime.cognition.weekly_plane_shift \
   --operating-root <测试根> [--sync]
 ```
 
-真迁移手动触发（编排层决定时机）：
+真迁移触发（编排层定案：不做人工提前点火）：
 
 ```bash
-npx tsx src/cli.ts cron run <jobId>          # 立即执行（幂等：重复跑安全）
+# 主路径：自然触发 —— r1-3 验证 PASS 后由 cron 周日 23:00 Asia/Singapore 自动首跑
+# 兜底：cron 未触发时手动补跑（幂等：重复跑安全）
+npx tsx src/cli.ts cron run <jobId>
 npx tsx src/cli.ts cron log --job-id <jobId> # 审计
 ```
+
+写路径前置验证（fleet 身份，r1-2 P4 实测通过）：`/home/fleet` 存在（command-handler HOME 覆盖有效）、
+`.git` 递归 fleet 属主后 `git add` 可写 index、`git diff --cached --quiet` no-op 幂等。
 
 ## 4. 本地回流（运维步骤，调度器不负责）
 
