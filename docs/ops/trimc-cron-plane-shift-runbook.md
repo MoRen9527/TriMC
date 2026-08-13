@@ -24,6 +24,7 @@ trimc.service（root，tsx 直跑）
 - 存储：`/var/lib/trimc/cron/jobs.json`（TRIMC_CONFIG_DIR=/var/lib/trimc，service drop-in 注入）
 - 日志：`/var/lib/trimc/cron/logs/<jobId>__<ISO>.log` + systemd journal（`journalctl -u trimc`）
 - 解释器：**python3.8**（服务器系统 python3.6.8 不兼容 `from __future__ import annotations`，checklist #2 定案 A'）
+- 通知：**notify 已真实配通（O1 关闭，2026-08 演练二期实证）**——`notify.json` 0600 + QQ SMTP；`--sync` 迁移完成后邮件通知真实投递（非 render_only 空转），审计仍以 `.shift-ade.json` + git commit + per-run 日志为主、邮件为补充
 
 ## 2. 部署步骤（代码版本更新）
 
@@ -95,6 +96,10 @@ cd D:/Code/ai/TriMetaverse && git pull sg-server dev
 | fleet git add/commit 报 index 不可写 | .git 属主复发：`chown -R fleet:fleet /srv/fleet/TriMetaverse/.git`（R1，root pull 后常态） |
 
 ### 演练回退（真根演练无痕回退三件套，编排层演练实证可用）
+
+**前置（一期/二期教训）**：
+- **演练前精确 HEAD 必须当场记录并核对，不凭记忆**——一期教训：记忆值 be4f80a1 与实值 a857ccaa 不符，裸仓/克隆回退目标分叉 → 后续 push 被 non-fast-forward 拒绝。
+- **服务器侧 git 操作统一 fleet 身份**（`runuser -u fleet --`），root 只做 chown/chgrp 类属主修复——克隆混入 root 属主文件会致 fleet `reset`/`clean` 被拒（R1 同源）。
 
 ```bash
 # ① 裸仓回退：把 ref 指回演练前 commit
