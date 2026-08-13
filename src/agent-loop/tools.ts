@@ -14,6 +14,7 @@ import {
   getToolDefinitions as coreGetToolDefinitions,
   executeTool as coreExecuteTool,
   type ToolHandler,
+  type ToolContext,
 } from '@tricompany/agent-core';
 import { createProcessSupervisor } from '@tricompany/agent-core';
 import type { ProcessSupervisor } from '@tricompany/agent-core';
@@ -38,10 +39,13 @@ export function getToolDefinitions(tier?: import('./permissions.js').AgentTier):
 }
 
 // ── Safe executeTool (wraps agent-core's throw-based API) ──
+// REQ-014b: third param passes the agent loop cwd through to tool handlers
+// (ctx.cwd). No active call sites pass ctx today — legacy direct callers
+// remain ctx-less and fall back to process.cwd() inside handlers.
 
-export async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
+export async function executeTool(name: string, args: Record<string, unknown>, ctx?: ToolContext): Promise<string> {
   try {
-    return await coreExecuteTool(name, args);
+    return await coreExecuteTool(name, args, ctx);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return JSON.stringify({ error: msg });
@@ -226,9 +230,11 @@ register(
       },
     },
   },
-  async (args) => {
+  async (args, ctx?: ToolContext) => {
     const command = args.command as string;
-    const cwd = (args.cwd as string) || process.cwd();
+    // REQ-014b: model-explicit args.cwd wins (legacy semantics preserved),
+    // then the agent loop cwd (ctx.cwd), then the daemon launch dir.
+    const cwd = (args.cwd as string) || ctx?.cwd || process.cwd();
     if (!command) return JSON.stringify({ error: 'command is required' });
 
     // ── Policy gate check ──
@@ -281,9 +287,13 @@ register(
       },
     },
   },
-  async (args) => {
+  async (args, ctx?: ToolContext) => {
     const pattern = args.pattern as string;
-    const basePath = (args.path as string) || process.cwd();
+    // REQ-014b: resolve relative paths against the agent loop cwd (ctx.cwd),
+    // not the daemon launch dir. ctx is absent in legacy call sites → fall
+    // back to process.cwd() (unchanged legacy behavior).
+    const base = ctx?.cwd ?? process.cwd();
+    const basePath = (args.path as string) || base;
     if (!pattern) return JSON.stringify({ error: 'pattern is required' });
 
     const results: string[] = [];
@@ -373,7 +383,7 @@ register(
       },
     },
   },
-  async (args) => {
+  async (args, ctx?: ToolContext) => {
     const description = args.description as string;
     const prompt = args.prompt as string;
     if (!description || !prompt) {
@@ -388,7 +398,8 @@ register(
         agentType,
         prompt,
         description,
-        cwd: process.cwd(),
+        // REQ-014b: sub-agents inherit the parent loop cwd (ctx.cwd).
+        cwd: ctx?.cwd ?? process.cwd(),
       })) {
         if (event.type === 'subagent_delta') {
           collectedContent += event.delta;
