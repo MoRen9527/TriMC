@@ -292,12 +292,25 @@ export function canonicalize(value: unknown): string {
  * generatedAt/generatedBy 元字段——元字段每次生成必然不同，纳入会使
  * 「同内容旧 generatedAt 重放」与「生成端同内容幂等重跑」判定恒失效
  * （§一.4 矩阵语义 = 内容重放检测，非全帧指纹）。
+ * 修正记录 ②（i4-4 终审裁决，OBS-1）：project.devHead 同口径排除——
+ * devHead 是自引用事实（每次成功 run 必 commit bundle 推进 HEAD，下一轮
+ * 收集值必变），纳入会使幂等重跑语义恒失效。两端同口径（生成端
+ * sync-bundle.ts computeDimsContentHash 一致）。
  */
 export function computeContentHash(bundle: SyncBundle): string {
   const { company, model, keys, employees, project } = bundle;
   return createHash('sha256')
-    .update(canonicalize({ company, model, keys, employees, project }), 'utf-8')
+    .update(canonicalize({ company, model, keys, employees, project: projectDimForHash(project) }), 'utf-8')
     .digest('hex');
+}
+
+/** 幂等哈希口径：project 维剔除 devHead（自引用字段，两端同口径）。 */
+function projectDimForHash(project: unknown): unknown {
+  if (typeof project === 'object' && project !== null && !Array.isArray(project)) {
+    const { devHead: _omitted, ...rest } = project as Record<string, unknown>;
+    return rest;
+  }
+  return project;
 }
 
 /** keys 维指纹 = SHA-256(材料).slice(0,8)（§一.2；材料仅内存内计算，即刻丢弃）。 */

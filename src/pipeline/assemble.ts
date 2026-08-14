@@ -28,7 +28,7 @@ export interface PipelineAssemblyOptions {
   cwd?: string;
   /** Maximum conversation turns (default: 25) */
   maxTurns?: number;
-  /** Model name (default: 'deepseek-v4-pro') */
+  /** Model name（缺省走三级解析 resolveDefaultModel：env TRIMC_DEFAULT_MODEL > applied > 兜底常量，i4-2 §四） */
   model?: string;
   /** Memdir root path for memory injection (optional). When unset, memory layer is skipped. */
   memdirPath?: string;

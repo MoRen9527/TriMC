@@ -130,11 +130,15 @@ describe('config-sync contentHash + fingerprint', () => {
     assert.equal(computeContentHash(a), computeContentHash(b));
   });
 
-  it('contentHash differs when content differs', () => {
+  it('contentHash differs when content differs（devHead 除外，R1 自引用口径）', () => {
     const a = validBundle();
     const b = validBundle();
+    // R1（i4-4 修正记录 ②）：project.devHead 自引用字段同口径排除——devHead 每次
+    // 成功 run 必推进（bundle commit 自身 parent），纳入会使幂等重跑判定恒失效
     b.project.devHead = '0000000000000000000000000000000000000000';
-    assert.notEqual(computeContentHash(a), computeContentHash(b));
+    assert.equal(computeContentHash(a), computeContentHash(b)); // 仅 devHead 异 → hash 同
+    b.project.repoUrl = 'https://github.com/other/repo.git';
+    assert.notEqual(computeContentHash(a), computeContentHash(b)); // 其他维变化 → hash 异
   });
 
   it('fingerprint = sha256(material).slice(0,8) and never contains material', () => {

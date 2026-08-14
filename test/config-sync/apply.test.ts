@@ -149,7 +149,7 @@ describe('config-sync apply — 幂等单调矩阵（§一.4）', () => {
     const first = await runConfigSyncApply({ fleetRoot, configDir, git });
     assert.equal(first.outcome, 'applied');
     await writeFleetBundle(
-      bundleFixture({ bundleId: 'bundle-0000', generatedAt: '2026-08-13T10:00:00.000Z', project: { ...bundleFixture().project, devHead: '9999999999999999999999999999999999999999' } }),
+      bundleFixture({ bundleId: 'bundle-0000', generatedAt: '2026-08-13T10:00:00.000Z', project: { ...bundleFixture().project, repoUrl: 'https://github.com/other/repo.git' } }),
     );
     const second = await runConfigSyncApply({ fleetRoot, configDir, git });
     assert.equal(second.outcome, 'warning-stale');
