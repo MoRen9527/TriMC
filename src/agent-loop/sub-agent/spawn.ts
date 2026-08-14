@@ -15,6 +15,7 @@ import { getBuiltInAgent } from './built-in.js';
 import { resolveAgentTools, filterToolsForAgent, buildToolCatalog } from './tools-resolve.js';
 import { agentLoop, type AgentLoopOptions, type AgentEvent } from '../loop.js';
 import type { PermissionRule } from '../permissions-engine/types.js';
+import { resolveDefaultModel } from '../../config-sync/default-model.js';
 
 // ── Agent ID Generator ──
 
@@ -212,8 +213,9 @@ export async function* spawnAgent(
   const systemPrompt = buildAgentSystemPrompt(agentDef, config.prompt, filteredTools);
 
   // 5. Build loop options
+  // 模型名三级解析（i4-2 §四）：env > applied > 兜底常量
   const loopOptions: AgentLoopOptions = {
-    model: config.model ?? agentDef.model ?? 'deepseek-v4-pro',
+    model: config.model ?? agentDef.model ?? (await resolveDefaultModel()),
     maxTurns: resolveMaxTurns(config, agentDef),
     systemPrompt,
     tier: 'subagent',

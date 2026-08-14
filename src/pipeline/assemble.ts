@@ -15,6 +15,7 @@ import { buildContext, mergeContextWithPrompt, type ContextSources } from '../co
 import type { AgentContract, ToolSpec } from '../contracts/agent-contract.js';
 import type { AgentLoopOptions } from '../agent-loop/loop.js';
 import type { AgentTier } from '../agent-loop/permissions.js';
+import { resolveDefaultModel } from '../config-sync/default-model.js';
 
 // ── Assembly Options ──
 
@@ -108,7 +109,8 @@ export async function assemblePipelineOptions(
   const toolSpecs: ToolSpec[] = contract.tools;
 
   const options: AgentLoopOptions = {
-    model: input.model ?? 'deepseek-v4-pro',
+    // 模型名三级解析（i4-2 §四）：env TRIMC_DEFAULT_MODEL > applied > 兜底常量
+    model: input.model ?? (await resolveDefaultModel()),
     maxTurns: input.maxTurns ?? 25,
     systemPrompt: mergedSystemPrompt,
     cwd: input.cwd,

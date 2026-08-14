@@ -24,6 +24,11 @@ import {
   type AgentSession,
   type SessionBridgeOptions,
 } from '../orchestration/session-bridge.js';
+import {
+  readConfigSyncStatus,
+  resolveDefaultModel,
+  resolveFlashModel,
+} from '../config-sync/index.js';
 
 export function createTriMCApp(env: TriMCEnv) {
   const taskController = new TaskController();
@@ -233,7 +238,8 @@ export function createTriMCApp(env: TriMCEnv) {
 
         if (req.url === '/hello' && req.method === 'GET') {
           try {
-            const response = await modelClient.chat('deepseek-v4-flash', [
+            // 模型名三级解析 flash 变体（§四）：applied catalog flash 别名 > 兜底常量
+            const response = await modelClient.chat(await resolveFlashModel(), [
               {
                 role: 'system',
                 content:
@@ -436,7 +442,7 @@ export function createTriMCApp(env: TriMCEnv) {
                 tier: parsed.tier ?? 'main',
                 cwd: parsed.cwd ?? env.cwd,
                 maxTurns: parsed.maxTurns ?? 25,
-                model: parsed.model ?? 'deepseek-v4-pro',
+                model: parsed.model ?? (await resolveDefaultModel()),
                 memdirPath: env.memdirPath,
                 systemPromptOverride: parsed.systemPrompt,
               });
@@ -453,7 +459,7 @@ export function createTriMCApp(env: TriMCEnv) {
           } else {
             // ── Legacy raw mode (backward compatible) ──
             loopOptions = {
-              model: parsed.model ?? 'deepseek-v4-pro',
+              model: parsed.model ?? (await resolveDefaultModel()),
               systemPrompt: parsed.systemPrompt ?? '',
               messages: parsed.messages ?? [],
               maxTurns: parsed.maxTurns ?? 25,
@@ -559,6 +565,23 @@ export function createTriMCApp(env: TriMCEnv) {
           return;
         }
 
+        // ── GET /internal/v1/config/sync/status ──
+        // i4-2 §三.3：五维同步接收侧状态（只读）。数据源 = TRIMC_CONFIG_DIR/
+        // init-sync/ 磁盘真源 + fleet 工作树 HEAD（git 只读）；pending = fleet
+        // bundle 与 applied 版本差（同步未达呈现代理）——协同确认 §七 的
+        // 服务器侧事实源。消费面读取时解析（D3），无跨进程 IPC。
+        if (req.url === '/internal/v1/config/sync/status' && req.method === 'GET') {
+          try {
+            const payload = await readConfigSyncStatus();
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify(payload));
+          } catch (err) {
+            res.writeHead(500, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'config_sync_status_unavailable', message: (err as Error).message }));
+          }
+          return;
+        }
+
         // ── POST /internal/v1/events/replay ──
         // Offline event replay from TriLC nodes. CTO-008-M §3.3.2.
         // M.5: Conflict arbitration integrated — arbitrate() detects double-assignment etc.
@@ -596,7 +619,8 @@ export function createTriMCApp(env: TriMCEnv) {
 
         if (req.url === '/hello-pro' && req.method === 'GET') {
           try {
-            const response = await modelClient.chat('deepseek-v4-pro', [
+            // 模型名三级解析 default 变体（§四）：env > applied > 兜底常量
+            const response = await modelClient.chat(await resolveDefaultModel(), [
               {
                 role: 'system',
                 content:

@@ -15,6 +15,9 @@ export type TriMCEnv = {
   cronEnabled: boolean;
   /** cron per-run 日志目录（TRIMC_CRON_LOG_DIR）；不设则由 cron service 落 TRIMC_CONFIG_DIR/cron/logs */
   cronLogDir?: string;
+  /** 模型 default 三级解析最高优先（TRIMC_DEFAULT_MODEL，i4-2 §四）；
+   *  不设 → applied bundle model.defaultModel → 兜底常量。 */
+  defaultModel?: string;
 };
 
 export function readEnv(): TriMCEnv {
@@ -29,5 +32,6 @@ export function readEnv(): TriMCEnv {
     bridgeCwd: process.env.TRIMC_BRIDGE_CWD ?? '/srv/fleet',
     cronEnabled: process.env.TRIMC_CRON_ENABLED !== 'false',
     cronLogDir: process.env.TRIMC_CRON_LOG_DIR || undefined,
+    defaultModel: process.env.TRIMC_DEFAULT_MODEL || undefined,
   };
 }

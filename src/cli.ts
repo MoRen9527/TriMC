@@ -7,6 +7,7 @@
  */
 
 import type { CronJobPatch } from '@tricompany/agent-core';
+import { runConfigSyncApply } from './config-sync/apply.js';
 
 // ── service address ─────────────────────────────────────────────
 
@@ -68,6 +69,30 @@ const PLANE_SHIFT_PRESET = {
   },
 };
 
+// ── config-sync-apply preset（i4-2 §三.2）───────────────────────
+
+/**
+ * 五维同步接收侧 job（init-collab-i4-five-dim-sync）：
+ *   schedule = every 15min（§6.4.1 建议值）
+ *   D6：ff pull 归属 job 第一步——现无 fleet pull 机制，本 job 自带；
+ *   pull 失败（plane-shift 同 clone 写窗/网络）= 跳过本轮 + 下轮自愈。
+ *   runAs fleet（OBS-20260814-002 身份纪律：服务器侧一切 git = fleet 单身份）。
+ *   第二步调 apply 执行体（读→校验→版本比对→落地→退出码），
+ *   非 0 退出 → cron job lastError + per-run 日志（既有机制复用）。
+ */
+const SYNC_APPLY_PRESET = {
+  name: 'config-sync-apply',
+  schedule: { kind: 'every' as const, everyMs: 900000 },
+  payload: {
+    command: [
+      'cd /srv/fleet/TriMetaverse && git pull --ff-only \\',
+      '&& node /srv/fleet/TriMC/dist/src/cli.js config-sync apply',
+    ].join('\n'),
+    cwd: '/srv/fleet',
+    runAs: 'fleet',
+  },
+};
+
 // ── subcommands ─────────────────────────────────────────────────
 
 type Args = string[];
@@ -90,10 +115,13 @@ async function cmdAdd(args: Args): Promise<void> {
   let timeoutMs: number | undefined;
   let enabled = true;
   let planeShift = false;
+  let syncApply = false;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--plane-shift') {
       planeShift = true;
+    } else if (args[i] === '--sync-apply') {
+      syncApply = true;
     } else if (args[i] === '--name') {
       name = requireValue(args, i, '--name');
       i++;
@@ -139,6 +167,13 @@ async function cmdAdd(args: Args): Promise<void> {
     cwd = cwd || PLANE_SHIFT_PRESET.payload.cwd;
     runAs = runAs ?? PLANE_SHIFT_PRESET.payload.runAs;
   }
+  if (syncApply) {
+    name = name || SYNC_APPLY_PRESET.name;
+    schedule = { ...SYNC_APPLY_PRESET.schedule };
+    command = command || SYNC_APPLY_PRESET.payload.command;
+    cwd = cwd || SYNC_APPLY_PRESET.payload.cwd;
+    runAs = runAs ?? SYNC_APPLY_PRESET.payload.runAs;
+  }
 
   if (!name) {
     console.error('ERROR: name is required (--name <name> or positional).');
@@ -146,7 +181,7 @@ async function cmdAdd(args: Args): Promise<void> {
   }
   if (!schedule) {
     console.error(
-      'ERROR: schedule is required (--cron "<expr>" [--tz <tz>], --every <ms>, or --plane-shift).',
+      'ERROR: schedule is required (--cron "<expr>" [--tz <tz>], --every <ms>, --plane-shift, or --sync-apply).',
     );
     process.exit(1);
   }
@@ -295,25 +330,72 @@ async function cmdRemove(args: Args): Promise<void> {
   console.log('[OK] job removed.');
 }
 
+// ── config-sync subcommands ─────────────────────────────────────
+
+/**
+ * `trimc config-sync apply`（i4-2 §三.2）：五维同步接收侧执行体。
+ * 读 fleet 工作树 bundle → 校验 → 版本比对 → 落地。退出码 0 = no-op/成功；
+ * 1 = invalid-bundle / 落地异常（cron job lastError 面）。
+ */
+async function cmdConfigSyncApply(args: Args): Promise<void> {
+  let fleetRoot: string | undefined;
+  let configDir: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--fleet-root') {
+      fleetRoot = requireValue(args, i, '--fleet-root');
+      i++;
+    } else if (args[i] === '--config-dir') {
+      configDir = requireValue(args, i, '--config-dir');
+      i++;
+    }
+  }
+  try {
+    const result = await runConfigSyncApply({
+      ...(fleetRoot ? { fleetRoot } : {}),
+      ...(configDir ? { configDir } : {}),
+    });
+    console.log('[OK] config-sync apply:', JSON.stringify(result, null, 2));
+    if (result.outcome === 'invalid-bundle') {
+      process.exitCode = 1;
+    }
+  } catch (err) {
+    console.error(`ERROR: config-sync apply failed: ${err instanceof Error ? err.message : String(err)}`);
+    process.exitCode = 1;
+  }
+}
+
 // ── dispatch ────────────────────────────────────────────────────
 
-const USAGE = `Usage: trimc cron <add|list|run|log|status|update|remove>
+const USAGE = `Usage: trimc <cron|config-sync> ...
 
-  add    --name <n> --cron "<expr>" [--tz <tz>] --command <cmd> --cwd <dir>
-         [--run-as <user>] [--timeout <ms>] [--disabled]
-         | --plane-shift            (install the weekly plane shift job preset)
-  list
-  run    <id> [--force]
-  log    [--job-id <id>] [--limit <n>]
-  status
-  update <id> [--enable|--disable] [--name <n>] [--cron <expr>] [--every <ms>]
-  remove <id>`;
+  cron add    --name <n> --cron "<expr>" [--tz <tz>] --command <cmd> --cwd <dir>
+              [--run-as <user>] [--timeout <ms>] [--disabled]
+              | --plane-shift           (install the weekly plane shift job preset)
+              | --sync-apply            (install the config sync apply job preset, every 15min)
+  cron <list|run <id>|log|status|update <id>|remove <id>>
+
+  config-sync apply [--fleet-root <dir>] [--config-dir <dir>]
+                                        (apply the fleet five-dim sync bundle)`;
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
-  if (argv.length === 0 || (argv[0] === 'cron' && argv.length === 1)) {
+  if (argv.length === 0) {
     console.log(USAGE);
     return;
+  }
+  if (argv[0] === 'cron' && argv.length === 1) {
+    console.log(USAGE);
+    return;
+  }
+  if (argv[0] === 'config-sync') {
+    const sub = argv[1];
+    if (sub === 'apply') {
+      await cmdConfigSyncApply(argv.slice(2));
+      return;
+    }
+    console.error(`ERROR: unknown config-sync subcommand: ${sub}`);
+    console.error(USAGE);
+    process.exit(1);
   }
   if (argv[0] !== 'cron') {
     console.error(`ERROR: unknown command "${argv[0]}".`);
