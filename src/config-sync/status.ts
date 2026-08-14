@@ -12,6 +12,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import {
   validateSyncBundle,
   type AppliedManifest,
@@ -71,6 +72,10 @@ export function createGitRunner(): GitRunner {
           timeout: opts?.timeoutMs ?? 30_000,
           windowsHide: true,
           maxBuffer: 10 * 1024 * 1024,
+          // HOME 兜底：systemd 服务 env 可能无 HOME（如 trimc.service），git 读不到
+          // 用户级 config（safe.directory 例外）→ fleet 属主仓「dubious ownership」
+          // exit 128（i4-2 部署实证发现）。补 HOME 后 git 正常读 ~/.gitconfig。
+          env: { ...process.env, HOME: process.env.HOME || homedir() },
         },
         (error, stdout, stderr) => {
           if (error) {
@@ -167,8 +172,13 @@ export async function readConfigSyncStatus(opts?: SyncStatusOptions): Promise<Sy
         branch: branchRes.code === 0 ? branchRes.stdout.trim() : 'detached',
         commit: headRes.stdout.trim(),
       };
+    } else {
+      console.warn(
+        `[trimc:config-sync] fleetHead git failed (head.code=${headRes.code}, branch.code=${branchRes.code}): ${headRes.stderr} / ${branchRes.stderr}`,
+      );
     }
-  } catch {
+  } catch (err) {
+    console.warn(`[trimc:config-sync] fleetHead git threw: ${(err as Error).message}`);
     fleetHead = null;
   }
 
