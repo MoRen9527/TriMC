@@ -73,6 +73,7 @@ describe('readConfigSyncStatus', () => {
       fleetHead: null,
       dims: null,
       pending: null,
+      project: null,
       warnings: [],
     });
   });
@@ -102,6 +103,29 @@ describe('readConfigSyncStatus', () => {
     assert.deepEqual(status.warnings, ['employees: fleet lag']);
     // 同 bundleId → pending null（版本无差）
     assert.equal(status.pending, null);
+    // project 维未落地（测试仅写 applied.json）→ null
+    assert.equal(status.project, null);
+  });
+
+  it('project 维文件落地 → status.project 呈现（L1 三面比对事实源）', async () => {
+    const dir = path.join(configDir, 'init-sync');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, 'project.json'),
+      JSON.stringify({
+        projectKey: 'trimetaverse',
+        repoUrl: 'https://github.com/MoRen9527/TriMetaverse.git',
+        defaultBranch: 'dev',
+        worktrees: [{ path: 'D:/Code/ai/TriMetaverse', branch: 'dev' }],
+        devHead: '2222222222222222222222222222222222222222',
+      }),
+      'utf-8',
+    );
+    const status = await readConfigSyncStatus({ fleetRoot, configDir, git: scriptedGit() });
+    assert.equal(status.project?.projectKey, 'trimetaverse');
+    assert.equal(status.project?.repoUrl, 'https://github.com/MoRen9527/TriMetaverse.git');
+    assert.equal(status.project?.worktrees[0].branch, 'dev');
+    assert.equal(status.project?.devHead, '2222222222222222222222222222222222222222');
   });
 
   it('fleet bundle 与 applied 版本差 → pending 非 null', async () => {

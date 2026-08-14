@@ -16,6 +16,7 @@ import { homedir } from 'node:os';
 import {
   validateSyncBundle,
   type AppliedManifest,
+  type BundleProject,
   type SyncStatusPayload,
 } from './types.js';
 
@@ -197,6 +198,18 @@ export async function readConfigSyncStatus(opts?: SyncStatusOptions): Promise<Sy
     pending = null;
   }
 
+  // project 维内容（Phase D L1 三面比对服务器侧事实源；无 applied 或坏形状 = null）
+  let project: BundleProject | null = null;
+  try {
+    const raw = await readFile(dimFilePath(configDir, 'project'), 'utf-8');
+    const parsed = JSON.parse(raw) as Partial<BundleProject>;
+    if (typeof parsed.projectKey === 'string' && typeof parsed.repoUrl === 'string') {
+      project = parsed as BundleProject;
+    }
+  } catch {
+    project = null;
+  }
+
   return {
     ok: true,
     applied: applied
@@ -210,6 +223,7 @@ export async function readConfigSyncStatus(opts?: SyncStatusOptions): Promise<Sy
     fleetHead,
     dims: applied?.dims ?? null,
     pending,
+    project,
     warnings: applied?.warnings ?? [],
   };
 }

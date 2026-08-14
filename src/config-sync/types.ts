@@ -335,5 +335,8 @@ export interface SyncStatusPayload {
   fleetHead: { branch: string; commit: string } | null;
   dims: Record<DimKey, AppliedDimStatus> | null;
   pending: { bundleId: string; generatedAt: string } | null;
+  /** 已应用 project 维内容（i4-2 Phase D L1 三面比对服务器侧事实源；
+   *  additive 字段，无 applied 或该维降级 = null）。 */
+  project: BundleDim<BundleProject> | null;
   warnings: string[];
 }
