@@ -4,7 +4,7 @@
 // unavailable 维落地 / schema 拒绝 api_key / 员工维 sourceCommit 拉齐。
 // 注入：临时目录 + scripted git runner（无真实 git 依赖）。
 
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -12,6 +12,22 @@ import * as path from 'node:path';
 import { runConfigSyncApply } from '../../src/config-sync/apply.js';
 import { resetAppliedCacheForTest, type GitExecResult, type GitRunner } from '../../src/config-sync/status.js';
 import type { SyncBundle } from '../../src/config-sync/types.js';
+
+// ── env 面钉住（keys 维覆盖判定依赖 env；防开发机环境漂移）──
+
+const COVERAGE_ENV_KEYS = ['DEEPSEEK_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'TRIMODEL_TRIMETAVERSE_API_KEY'];
+let prevEnv: Record<string, string | undefined> = {};
+
+function pinEnv(coverage: Partial<Record<(typeof COVERAGE_ENV_KEYS)[number], string>>): void {
+  prevEnv = {};
+  for (const key of COVERAGE_ENV_KEYS) {
+    prevEnv[key] = process.env[key];
+    delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(coverage)) {
+    if (value !== undefined) process.env[key] = value;
+  }
+}
 
 // ── scripted git（按调用序出队；队空 = 成功空输出）──
 
@@ -83,6 +99,16 @@ beforeEach(async () => {
   await fs.mkdir(path.join(fleetRoot, 'TriMetaverse'), { recursive: true });
   await fs.mkdir(path.join(fleetRoot, 'TriCompany'), { recursive: true });
   resetAppliedCacheForTest();
+  // 默认覆盖 = 仅 deepseek（对齐服务器 docker/.env 实际面）
+  pinEnv({ DEEPSEEK_API_KEY: 'sk-server-deepseek-only' });
+});
+
+afterEach(() => {
+  for (const key of COVERAGE_ENV_KEYS) {
+    if (prevEnv[key] === undefined) delete process.env[key];
+    else process.env[key] = prevEnv[key];
+  }
+  prevEnv = {};
 });
 
 describe('config-sync apply — 幂等单调矩阵（§一.4）', () => {
@@ -216,6 +242,72 @@ describe('config-sync apply — 落地与降级', () => {
     const applied = JSON.parse(await fs.readFile(path.join(configDir, 'init-sync', 'applied.json'), 'utf-8'));
     assert.equal(applied.dims.employees, 'warning');
     assert.ok(applied.warnings?.[0]?.includes('employees:'));
+  });
+});
+
+describe('config-sync apply — keys 维覆盖判定（i4-4 终审口径：未覆盖 → warning 非 unavailable）', () => {
+  it('四 provider 仅 deepseek env 覆盖 → dims.keys=warning + 未覆盖条目明细', async () => {
+    const bundle = bundleFixture();
+    bundle.keys = {
+      providers: [
+        { provider: 'deepseek', ready: true, fingerprint: 'a1b2c3d4' },
+        { provider: 'anthropic', ready: true, fingerprint: 'b2c3d4e5' },
+        { provider: 'openai', ready: true, fingerprint: 'c3d4e5f6' },
+        { provider: 'trimetaverse', ready: true, fingerprint: 'd4e5f6a7' },
+      ],
+      refreshIntervalS: 900,
+      fetchedAt: '2026-08-14T09:59:00.000Z',
+    };
+    await writeFleetBundle(bundle);
+    const { git } = scriptedGit({ code: 0, stdout: '1111111111111111111111111111111111111111\n', stderr: '' });
+    const result = await runConfigSyncApply({ fleetRoot, configDir, git });
+    assert.equal(result.outcome, 'applied');
+    const applied = JSON.parse(await fs.readFile(path.join(configDir, 'init-sync', 'applied.json'), 'utf-8'));
+    assert.equal(applied.dims.keys, 'warning');
+    const keysWarning = applied.warnings?.find((w: string) => w.startsWith('keys:'));
+    assert.ok(keysWarning, 'warnings should include keys coverage entry');
+    assert.match(keysWarning, /anthropic, openai, trimetaverse/);
+    assert.ok(!keysWarning.includes('deepseek'));
+    // keys 维文件仍落（配置面 + 指纹，不因未覆盖丢条目）
+    const keysFile = JSON.parse(await fs.readFile(path.join(configDir, 'init-sync', 'keys.json'), 'utf-8'));
+    assert.equal(keysFile.providers.length, 4);
+  });
+
+  it('全部 provider 覆盖 → dims.keys=applied（无 warning 条目）', async () => {
+    const bundle = bundleFixture();
+    bundle.keys = {
+      providers: [{ provider: 'deepseek', ready: true, fingerprint: 'a1b2c3d4' }],
+      refreshIntervalS: 900,
+      fetchedAt: '2026-08-14T09:59:00.000Z',
+    };
+    await writeFleetBundle(bundle);
+    const { git } = scriptedGit({ code: 0, stdout: '1111111111111111111111111111111111111111\n', stderr: '' });
+    const result = await runConfigSyncApply({ fleetRoot, configDir, git });
+    assert.equal(result.outcome, 'applied');
+    const applied = JSON.parse(await fs.readFile(path.join(configDir, 'init-sync', 'applied.json'), 'utf-8'));
+    assert.equal(applied.dims.keys, 'applied');
+    assert.ok(!(applied.warnings ?? []).some((w: string) => w.startsWith('keys:')));
+  });
+
+  it('opts.env 注入独立于 process.env（零覆盖 → warning）', async () => {
+    await writeFleetBundle(bundleFixture());
+    const { git } = scriptedGit({ code: 0, stdout: '1111111111111111111111111111111111111111\n', stderr: '' });
+    const result = await runConfigSyncApply({ fleetRoot, configDir, git, env: {} });
+    assert.equal(result.outcome, 'applied');
+    const applied = JSON.parse(await fs.readFile(path.join(configDir, 'init-sync', 'applied.json'), 'utf-8'));
+    assert.equal(applied.dims.keys, 'warning');
+    assert.match(applied.warnings?.[0] ?? '', /deepseek/);
+  });
+
+  it('keys 维 unavailable 降级段 → dims.keys=unavailable（不受覆盖判定影响）', async () => {
+    const bundle = bundleFixture();
+    bundle.keys = { status: 'unavailable', reason: 'key cache empty' };
+    await writeFleetBundle(bundle);
+    const { git } = scriptedGit({ code: 0, stdout: '1111111111111111111111111111111111111111\n', stderr: '' });
+    const result = await runConfigSyncApply({ fleetRoot, configDir, git });
+    assert.equal(result.outcome, 'applied');
+    const applied = JSON.parse(await fs.readFile(path.join(configDir, 'init-sync', 'applied.json'), 'utf-8'));
+    assert.equal(applied.dims.keys, 'unavailable');
   });
 });
 

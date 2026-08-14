@@ -57,6 +57,8 @@ export interface ConfigSyncApplyOptions {
   git?: GitRunner;
   /** 测试注入：当前时间源。 */
   now?: () => Date;
+  /** 测试注入：服务器 env 面（keys 维覆盖判定）；默认 process.env。 */
+  env?: NodeJS.ProcessEnv;
 }
 
 // ── 原子写（tmp→rename，与生成端同形态）──
@@ -104,6 +106,41 @@ function compareWithApplied(
     return { action: 'ignore', detail: `older generatedAt (${bundle.generatedAt} < ${applied.generatedAt}) — 忽略` };
   }
   return { action: 'proceed' };
+}
+
+// ── keys 维覆盖判定（i4-4 终审推导口径 2026-08-14，CTO 小狄）──
+// bundle keys 维按本地真源携带（四 provider 指纹 + ready 标志，只带指纹
+// 不受收敛影响）；服务器 apply 落地判定 = 仅服务器 env 实际覆盖的 provider
+// 落 applied，未覆盖条目落 warning（不落 unavailable——服务器自有材料优先
+// §6.7 + bundle 只带指纹的自然推论）。覆盖 = env 变量名存在且非空。
+
+export const PROVIDER_ENV_KEYS: Record<string, string> = {
+  deepseek: 'DEEPSEEK_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  trimetaverse: 'TRIMODEL_TRIMETAVERSE_API_KEY',
+};
+
+export function resolveKeysDim(
+  bundle: SyncBundle,
+  env: NodeJS.ProcessEnv = process.env,
+): { status: AppliedDimStatus; detail?: string } {
+  if (isDimUnavailable(bundle.keys)) {
+    return { status: 'unavailable', detail: bundle.keys.reason };
+  }
+  const uncovered: string[] = [];
+  for (const entry of bundle.keys.providers) {
+    const envKey = PROVIDER_ENV_KEYS[entry.provider];
+    const covered = !!envKey && typeof env[envKey] === 'string' && env[envKey]!.trim().length > 0;
+    if (!covered) uncovered.push(entry.provider);
+  }
+  if (uncovered.length === 0) {
+    return { status: 'applied' };
+  }
+  return {
+    status: 'warning',
+    detail: `keys providers not covered by server env: ${uncovered.join(', ')}（配置面+指纹已落，材料待 env 提供）`,
+  };
 }
 
 // ── 员工维 sourceCommit 校验（§三.1 + §九 TriCompany fleet 滞后行）──
@@ -223,11 +260,15 @@ export async function runConfigSyncApply(opts?: ConfigSyncApplyOptions): Promise
   const dims: Record<DimKey, AppliedDimStatus> = {
     company: isDimUnavailable(bundle.company) ? 'unavailable' : 'applied',
     model: isDimUnavailable(bundle.model) ? 'unavailable' : 'applied',
-    keys: isDimUnavailable(bundle.keys) ? 'unavailable' : 'applied',
+    keys: 'applied',
     employees: 'applied',
     project: isDimUnavailable(bundle.project) ? 'unavailable' : 'applied',
   };
   const warnings: string[] = [];
+  // keys 维覆盖判定（i4-4 终审口径：未覆盖 provider → warning 非 unavailable）
+  const keysRes = resolveKeysDim(bundle, opts?.env ?? process.env);
+  dims.keys = keysRes.status;
+  if (keysRes.detail && keysRes.status === 'warning') warnings.push(`keys: ${keysRes.detail}`);
   const employeesRes = await resolveEmployeesDim(bundle, { fleetRoot, configDir, git, now });
   dims.employees = employeesRes.status;
   if (employeesRes.detail) warnings.push(`employees: ${employeesRes.detail}`);
