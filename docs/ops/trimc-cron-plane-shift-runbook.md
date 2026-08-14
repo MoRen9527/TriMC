@@ -4,7 +4,7 @@
 
 - sourceOfTruth: TriMC/docs/ops/trimc-cron-plane-shift-runbook.md
 - syncMode: source-only
-- lastSyncedAt: 2026-08-13
+- lastSyncedAt: 2026-08-14
 
 > 关联：TriMC/docs/engineering/trimc-scheduler-adapter-design.md（r1-1 APPROVED，r1-2 实现）
 > 树：TriMetaverse/docs/workflow/operating-records/2026-W33/trees/prod-grade-1-trimc-weekly-cron
@@ -95,7 +95,9 @@ cd D:/Code/ai/TriMetaverse && git pull sg-server dev
 | fleet push 报 Permission denied 写 loose 对象 | 裸仓 loose 目录缺 g+w：`find /srv/git/TriMetaverse.git/objects -maxdepth 1 -type d -not -perm -g=w -exec chmod g+w {} +`（B2） |
 | fleet git add/commit 报 index 不可写 | .git 属主复发：`chown -R fleet:fleet /srv/fleet/TriMetaverse/.git`（R1，root pull 后常态） |
 
-### 演练回退（真根演练无痕回退三件套，编排层演练实证可用）
+### 演练回退（无痕回退四件套，编排层演练实证可用；2026-08-14 升级三端口径）
+
+依据：init-to-collab-design §8.3 三端回退与域隔离（三端 = 裸仓 ref / 舰队克隆 HEAD / 本地 dev+worktree HEAD）。
 
 **前置（一期/二期教训）**：
 - **演练前精确 HEAD 必须当场记录并核对，不凭记忆**——一期教训：记忆值 be4f80a1 与实值 a857ccaa 不符，裸仓/克隆回退目标分叉 → 后续 push 被 non-fast-forward 拒绝。
@@ -105,14 +107,40 @@ cd D:/Code/ai/TriMetaverse && git pull sg-server dev
 # ① 裸仓回退：把 ref 指回演练前 commit
 git --git-dir=/srv/git/TriMetaverse.git update-ref refs/heads/dev <演练前commit>
 
-# ② 舰队克隆回退：硬重置 + 清理
+# ② 舰队克隆回退：硬重置 + 清理（clean 限定路径域，不得全仓 clean）
 git -C /srv/fleet/TriMetaverse reset --hard <演练前commit> && git -C /srv/fleet/TriMetaverse clean -fd docs/workflow/operating-records
 
 # ③ job 运行态复位：编辑 /var/lib/trimc/cron/jobs.json，把 runCount 置 0、
 #    state 各时间戳置 null（lastRunAtMs/lastRunStatus/lastError 等），restart trimc
+
+# ④ 本地端回退（§8.3 升级新增）：若本地 dev/worktree 已 pull 迁移 commit，
+#    同步 ff 复位到同一回退目标（本地执行，编排层窗口）
+git fetch sg-server dev && git reset --hard <演练前commit>   # D:/Code/ai/TriMetaverse
+git -C <worktreePath> reset --hard <演练前commit>            # 项目 worktree（如有）
 ```
 
 > 演练产生了文件与 job 状态，回退后按 §2.3 chown .git（reset 可能重建 root 属主文件）。
+
+**「无痕」定义（§8.3 升级）**：三端 HEAD + job 态 + 本地读面一致复位——① 裸仓 ref、② 舰队克隆 HEAD、④ 本地 dev 与 worktree HEAD 三端同指回退目标 commit；③ job 运行态复位（runCount=0/state null）；本地读面（W 产物目录）随 HEAD 复位一致回退，无残留无幻影文件。
+
+**回退纪律（三期继承，逐项执行）**：
+- 回退目标 HEAD **当场记录核对不凭记忆**；三端（裸仓/舰队克隆/本地）用同一目标值。
+- 服务器侧 git 操作统一 fleet 身份（`runuser -u fleet --`），root 只做 chown/chgrp。
+- job ID 用 `trimc cron list` 输出的**全量 UUID**（截断形式查不到 job）。
+- 回退后 `chown -R fleet:fleet /srv/fleet/TriMetaverse/.git`（reset 可能重建 root 属主文件）。
+- clean 限定路径域：`clean -fd docs/workflow/operating-records`，**不得全仓 clean**（防误删非迁移域文件）。
+
+**三路径回退与恢复（init-to-collab-design §8.2/§8.3，2026-08-14 新增）**：
+
+| 路径 | 失败面 | 回退 | 恢复 |
+| --- | --- | --- | --- |
+| a 自然触发 = 首个协同工作 | 迁移五段链失败 | 四件套回退到演练前 HEAD（先例同构） | 修复后 `trimc cron run <jobId>` 重跑（幂等）→ 重验收 |
+| a 迁移成功但验收判定失败 | 证据/判定环节 | **不回退迁移**（W33→W34 平移已生效是生产事实；「首个协同工作 FAIL」≠ 回退迁移） | 补采证据 → 重判定；firstCollab 不写 passed |
+| b 显式触发（确认后 run） | 显式 run 失败 | 同路径 a（迁移域） | 幂等重跑 → 重验收 |
+| c 初始化未完成降级 | 迁移照常（不依赖初始化） | 同路径 a（迁移域） | 旧口径验收独立执行；初始化完成后补显式触发 |
+| 任一路径 | — | **初始化域不回退**（init-sync bundle 域隔离，§8.3） | — |
+
+**域隔离声明（§8.3）**：迁移回退**不回退初始化域**——回退命令只触 operating-records 域与 git ref；init-sync bundle（`docs/registry/init-sync/`，写权归初始化流）不在任何回退命令路径内（迁移脚本写权边界已限 operating-records，r1-2 现状）。回退演练后验证：服务器 applied.json（`/var/lib/trimc/init-sync/`）与本地 bundle 文件均不受演练影响。
 
 ## 6. 运行维护
 
