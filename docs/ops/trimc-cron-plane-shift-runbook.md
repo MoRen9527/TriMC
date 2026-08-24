@@ -162,6 +162,7 @@ git -C <worktreePath> reset --hard <演练前commit>            # 项目 worktre
 ## 7. 约束与纪律
 
 - **时区口径（2026-08-24 CEO 统一：北京时间）**：schedule.timezone 全线 `Asia/Shanghai`（UTC+8）——原 `Asia/Singapore` 同偏移，触发时刻不变。已知漂移：cli.ts 预设 cron `0 23 * * 0` vs 现役 job `59 23 * * 0`（2026-08-16 手调），重装/复用预设前须先对齐现役值；CLI `cron update` 缺 `--timezone` 旗标且 `--cron` 会整体替换 schedule 对象丢 tz 字段（跟进项）。历史文档（W33 树 brief、FADE 论文、init-to-collab-design）按叙事冻结不改
+- **周日触发前时钟三查（2026-08-24 增，防钟漂）**：① `chronyc tracking | grep 'System time'` 偏差 <1s；② `date -u` 对照权威源（`curl -sI https://www.baidu.com | grep -i ^date`）差 <2s；③ 超差先 `chronyc makestep` 校时再放行自然触发（`cron run` 兜底幂等，迁移窗口不受影响）。2026-08-24 基线实测：服务器 chronyd stratum 3 / 偏差 91µs，本地 w32tm 同步 ±2s，三方与权威源一致
 - 代码修改一律本地发起（本地 → 裸仓 → 舰队克隆）；服务器只写周平面文件（生产级开发期 §三方向例外）
 - 迁移窗口单实例：runningAtMs 守卫 + 单 systemd 实例
 - 真迁移触发时机由编排层决定（硬 deadline 2026-08-16 23:59 前可触发 W33→W34）
