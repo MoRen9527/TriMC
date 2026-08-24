@@ -49,7 +49,7 @@ async function cronRequest(method: string, path: string, body?: unknown): Promis
  */
 const PLANE_SHIFT_PRESET = {
   name: 'weekly-plane-shift',
-  schedule: { kind: 'cron' as const, cron: '0 23 * * 0', timezone: 'Asia/Singapore' },
+  schedule: { kind: 'cron' as const, cron: '0 23 * * 0', timezone: 'Asia/Shanghai' },
   payload: {
     command: [
       // python3.8 显式指定：服务器系统 Python 3.6.8 不支持

@@ -53,7 +53,7 @@ function formatDate(date: Date): string {
 /**
  * Compute {fromWeek, toWeek, startDate} for a weekly plane shift triggered at `now`.
  * Defaults to the current local time. All calendar math is local-time based,
- * matching the server timezone (Asia/Singapore, UTC+8).
+ * matching the server timezone (Asia/Shanghai = Beijing time, UTC+8).
  */
 export function computeWeekShiftTokens(now: Date = new Date()): WeekShiftTokens {
   const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate());

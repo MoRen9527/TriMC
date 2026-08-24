@@ -63,7 +63,7 @@ TriCompany/packages/agent-core/src/scheduler/
 
 ### 4.1 触发源
 
-- cron 表达式：**`0 23 * * 0`**，timezone **`Asia/Singapore`**——周日 23:00（服务器 UTC+8），ISO 周翻转（周一）之前。
+- cron 表达式：**`0 23 * * 0`**，timezone **`Asia/Singapore`**——周日 23:00（服务器 UTC+8），ISO 周翻转（周一）之前。（2026-08-24 修正：timezone 全线统一 `Asia/Shanghai`（北京时间），同 UTC+8 偏移、触发时刻不变；现役 job cron 已手调 `59 23 * * 0` = 周日 23:59）
 - week token 规则（week-math 纯函数）：`toWeek = ISO week of (today + 1 天)`；`startDate = toWeek 所在周的周一`；`fromWeek = toWeek − 1`。
 - 窗口正确性：周日跑 → to=W34 ✓；周一~周六补跑（隐式 catchup）→ 明天仍在当前 ISO 周内 → to=W34 ✓；下周日跑 → to=W35 ✓。全周成立。
 

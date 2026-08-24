@@ -4,7 +4,7 @@
 
 - sourceOfTruth: TriMC/docs/ops/trimc-cron-plane-shift-runbook.md
 - syncMode: source-only
-- lastSyncedAt: 2026-08-14
+- lastSyncedAt: 2026-08-24
 
 > 关联：TriMC/docs/engineering/trimc-scheduler-adapter-design.md（r1-1 APPROVED，r1-2 实现）
 > 树：TriMetaverse/docs/workflow/operating-records/2026-W33/trees/prod-grade-1-trimc-weekly-cron
@@ -14,7 +14,7 @@
 ```
 trimc.service（root，tsx 直跑）
   └─ src/cron/（JobExecutor 调度循环 + command-handler）
-       └─ 周日 23:00 Asia/Singapore 触发（cron `0 23 * * 0`）
+       └─ 周日 23:59 北京时间触发（现役 cron `59 23 * * 0`，timezone `Asia/Shanghai`）
             └─ runAs fleet：python3.8 五段链 --sync
                  ├─ /srv/fleet/TriMetaverse 写 docs/workflow/operating-records/
                  ├─ git add + commit（内联身份 TriMC Scheduler）
@@ -45,7 +45,7 @@ trimc.service（root，tsx 直跑）
 
 ```bash
 cd /srv/fleet/TriMC
-npx tsx src/cli.ts cron add --plane-shift   # 预设：周日 23:00 Asia/Singapore + runAs fleet
+npx tsx src/cli.ts cron add --plane-shift   # 预设：周日 23:00 北京时间（Asia/Shanghai）+ runAs fleet（现役 job 为 23:59 手调，见 §7 时区口径条）
 npx tsx src/cli.ts cron list
 ```
 
@@ -61,7 +61,7 @@ cd /srv/fleet/TriCompany && python3.8 -m runtime.cognition.weekly_plane_shift \
 真迁移触发（编排层定案：不做人工提前点火）：
 
 ```bash
-# 主路径：自然触发 —— r1-3 验证 PASS 后由 cron 周日 23:00 Asia/Singapore 自动首跑
+# 主路径：自然触发 —— r1-3 验证 PASS 后由 cron 周日自动触发（现役 23:59 北京时间 Asia/Shanghai）
 # 兜底：cron 未触发时手动补跑（幂等：重复跑安全）
 npx tsx src/cli.ts cron run <jobId>
 npx tsx src/cli.ts cron log --job-id <jobId> # 审计
@@ -161,6 +161,7 @@ git -C <worktreePath> reset --hard <演练前commit>            # 项目 worktre
 
 ## 7. 约束与纪律
 
+- **时区口径（2026-08-24 CEO 统一：北京时间）**：schedule.timezone 全线 `Asia/Shanghai`（UTC+8）——原 `Asia/Singapore` 同偏移，触发时刻不变。已知漂移：cli.ts 预设 cron `0 23 * * 0` vs 现役 job `59 23 * * 0`（2026-08-16 手调），重装/复用预设前须先对齐现役值；CLI `cron update` 缺 `--timezone` 旗标且 `--cron` 会整体替换 schedule 对象丢 tz 字段（跟进项）。历史文档（W33 树 brief、FADE 论文、init-to-collab-design）按叙事冻结不改
 - 代码修改一律本地发起（本地 → 裸仓 → 舰队克隆）；服务器只写周平面文件（生产级开发期 §三方向例外）
 - 迁移窗口单实例：runningAtMs 守卫 + 单 systemd 实例
 - 真迁移触发时机由编排层决定（硬 deadline 2026-08-16 23:59 前可触发 W33→W34）

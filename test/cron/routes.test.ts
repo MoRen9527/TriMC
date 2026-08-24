@@ -47,7 +47,7 @@ describe('cron routes', () => {
 
   const jobBody = {
     name: 'weekly-plane-shift',
-    schedule: { kind: 'cron', cron: '0 23 * * 0', timezone: 'Asia/Singapore' },
+    schedule: { kind: 'cron', cron: '0 23 * * 0', timezone: 'Asia/Shanghai' },
     payload: { command: 'echo hi', cwd: '/srv/fleet', runAs: 'fleet' },
   };
 
