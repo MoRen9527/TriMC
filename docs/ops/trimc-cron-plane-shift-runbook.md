@@ -5,6 +5,7 @@
 - sourceOfTruth: TriMC/docs/ops/trimc-cron-plane-shift-runbook.md
 - syncMode: source-only
 - lastSyncedAt: 2026-08-24
+- 命名注记（quad-migration v1.0）：本 runbook 所述"TriMC"= 服务器现役实例，叙事面已更名 **TriMMC**（原 TriMC，元虚拟主控壳）；兼容面物理名照旧。权威 alias 表：TriCompany/docs/registry/company-governance-state.md
 
 > 关联：TriMC/docs/engineering/trimc-scheduler-adapter-design.md（r1-1 APPROVED，r1-2 实现）
 > 树：TriMetaverse/docs/workflow/operating-records/2026-W33/trees/prod-grade-1-trimc-weekly-cron
