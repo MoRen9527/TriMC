@@ -115,6 +115,24 @@ export function createTriMCApp(env: TriMCEnv) {
           return;
         }
 
+        // ── 内部面鉴权（P0 加固 2026-08-25：8710 公网可达，/internal/* 原零鉴权
+        // 且 cron job 可执行任意 bash = 未认证 RCE 面）。TRIMC_INTERNAL_TOKEN
+        // 未配置时维持旧行为（兼容未迁移调用方），配置后强制校验。 ──
+        const internalToken = process.env.TRIMC_INTERNAL_TOKEN ?? '';
+        if (internalToken && (req.url ?? '').startsWith('/internal/')) {
+          const h = req.headers;
+          const supplied = Array.isArray(h['x-internal-token'])
+            ? h['x-internal-token'][0]
+            : (typeof h.authorization === 'string' && h.authorization.startsWith('Bearer ')
+                ? h.authorization.slice(7)
+                : h['x-internal-token']);
+          if (supplied !== internalToken) {
+            res.writeHead(401, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'unauthorized: missing or invalid X-Internal-Token' }));
+            return;
+          }
+        }
+
         // ── GET /internal/v1/agents ──
         // M1 Phase-2: 会话注册表（claude agents --json 采集 + employeeId 映射）
         if (req.url === '/internal/v1/agents' && req.method === 'GET') {

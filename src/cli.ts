@@ -49,7 +49,7 @@ async function cronRequest(method: string, path: string, body?: unknown): Promis
  */
 const PLANE_SHIFT_PRESET = {
   name: 'weekly-plane-shift',
-  schedule: { kind: 'cron' as const, cron: '0 23 * * 0', timezone: 'Asia/Shanghai' },
+  schedule: { kind: 'cron' as const, cron: '59 23 * * 0', timezone: 'Asia/Shanghai' }, // 2026-08-25 对齐现役 job（原 0 23 漂移已销账）
   payload: {
     command: [
       // python3.8 显式指定：服务器系统 Python 3.6.8 不支持
@@ -283,10 +283,11 @@ async function cmdStatus(): Promise<void> {
 }
 
 async function cmdUpdate(args: Args): Promise<void> {
+  let pendingTz: string | undefined;
   const jobId = args[0];
   if (!jobId) {
     console.error(
-      'ERROR: job ID required. Usage: trimc cron update <id> [--enable|--disable] [--name <n>] [--cron <expr>] [--every <ms>]',
+      'ERROR: job ID required. Usage: trimc cron update <id> [--enable|--disable] [--name <n>] [--cron <expr>] [--timezone <tz>] [--every <ms>]',
     );
     process.exit(1);
   }
@@ -302,6 +303,14 @@ async function cmdUpdate(args: Args): Promise<void> {
     } else if (args[i] === '--cron') {
       patch.schedule = { kind: 'cron', cron: requireValue(args, i, '--cron') };
       i++;
+    } else if (args[i] === '--timezone' || args[i] === '--tz') {
+      const tzv = requireValue(args, i, '--timezone');
+      if (patch.schedule && patch.schedule.kind === 'cron') {
+        (patch.schedule as Record<string, unknown>).timezone = tzv;
+      } else {
+        pendingTz = tzv; // --tz 先于 --cron 出现：暂存，构建 schedule 时合并
+      }
+      i++;
     } else if (args[i] === '--every') {
       const everyMs = parseInt(requireValue(args, i, '--every'), 10);
       if (!Number.isFinite(everyMs) || everyMs <= 0) {
@@ -312,12 +321,29 @@ async function cmdUpdate(args: Args): Promise<void> {
       i++;
     }
   }
+  if (patch.schedule && patch.schedule.kind === 'cron' && !patch.schedule.timezone) {
+    const tzFromJob = pendingTz ?? (await safeGetTimezone(jobId));
+    if (tzFromJob) (patch.schedule as Record<string, unknown>).timezone = tzFromJob;
+  }
+  if (pendingTz && (!patch.schedule || patch.schedule.kind !== 'cron')) {
+    console.error('WARN: --timezone requires a cron schedule (--cron); flag ignored.');
+  }
   if (Object.keys(patch).length === 0) {
     console.error('ERROR: no patch fields. Use --enable, --disable, --name, --cron, or --every.');
     process.exit(1);
   }
   const result = await cronRequest('PATCH', `/internal/v1/cron/jobs/${encodeURIComponent(jobId)}`, patch);
   console.log('[OK] job updated:', JSON.stringify((result as Record<string, unknown>).job, null, 2));
+}
+
+async function safeGetTimezone(jobId: string): Promise<string | undefined> {
+  try {
+    const r = await cronRequest('GET', `/internal/v1/cron/jobs/${encodeURIComponent(jobId)}`);
+    const job = (r as Record<string, unknown>).job as { schedule?: { timezone?: string } } | undefined;
+    return job?.schedule?.timezone;
+  } catch {
+    return undefined;
+  }
 }
 
 async function cmdRemove(args: Args): Promise<void> {
