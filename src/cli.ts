@@ -8,6 +8,7 @@
 
 import type { CronJobPatch } from '@tricompany/agent-core';
 import { runConfigSyncApply } from './config-sync/apply.js';
+import { resolveInternalToken } from './internal-token.js';
 
 // ── service address ─────────────────────────────────────────────
 
@@ -19,11 +20,15 @@ function serviceUrl(): string {
 
 async function cronRequest(method: string, path: string, body?: unknown): Promise<unknown> {
   const url = `${serviceUrl()}${path}`;
+  const token = resolveInternalToken();
   let res: Response;
   try {
     res = await fetch(url, {
       method,
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { 'X-Internal-Token': token } : {}),
+      },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
   } catch (err) {
@@ -36,6 +41,11 @@ async function cronRequest(method: string, path: string, body?: unknown): Promis
     const err =
       json && typeof json.error === 'string' ? json.error : `HTTP ${res.status}`;
     const detail = json && typeof json.message === 'string' ? `: ${json.message}` : '';
+    if (res.status === 401 && !token) {
+      console.error(
+        'HINT: TRIMC_INTERNAL_TOKEN 未配置（env 或 <TriMC 仓>/docker/.env 同名键），/internal/* 调用被 401 拒绝。',
+      );
+    }
     throw new Error(`${err}${detail}`);
   }
   return json;
