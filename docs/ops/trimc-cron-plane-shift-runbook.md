@@ -4,7 +4,9 @@
 
 - sourceOfTruth: TriMC/docs/ops/trimc-cron-plane-shift-runbook.md
 - syncMode: source-only
-- lastSyncedAt: 2026-08-24
+- lastSyncedAt: 2026-08-31
+
+> **时点修正（2026-08-31，真源可修口径留痕；LG-016 晨间简报派落）**：现役迁移触发时点为**每周日 23:00 北京时间**（cron `0 23 * * 0` Asia/Shanghai，CEO 2026-08-30 定）——本文正文散见的「现役 23:59 手调（59 23 * * 0，2026-08-16 手调）」为历史时点，按历史叙事冻结不改，以本注记现行值为准。W35→W36 首跑 PASS（2026-08-30 23:00 heyuan job 9c81c7ec，ok/9342ms，sg-bare dev=f284c19b 落真源 19c39f82 之上）；本轮同步变更：heyuan 侧迁移 job 去 runAs（服务 User=fleet 单身份）+payload 前置 TriMetaverse ff 拉取（隐雷排除，见 board-journal 2026-08-30 深夜干预链摘录）。
 - 命名注记（quad-migration v1.0）：本 runbook 所述"TriMC"= 服务器现役实例，叙事面已更名 **TriMMC**（原 TriMC，元虚拟主控壳）；兼容面物理名照旧。权威 alias 表：TriCompany/docs/registry/company-governance-state.md
 
 > 关联：TriMC/docs/engineering/trimc-scheduler-adapter-design.md（r1-1 APPROVED，r1-2 实现）
